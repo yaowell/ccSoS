@@ -21,6 +21,10 @@ jobs:
           path: theos
           submodules: recursive
 
+      - name: Install Dependencies
+        run: |
+          brew install ldid
+
       - name: Build Package
         run: |
           export THEOS=$GITHUB_WORKSPACE/theos
