@@ -1,14 +1,28 @@
 #import <UIKit/UIKit.h>
-#import <IOKit/IOKitLib.h>
 
-// 1. 底层 IOKit 读取真实电量
+// 显式声明 IOKit 底层 C 函数与常量，避免头文件 module 冲突
+#ifdef __cplusplus
+extern "C" {
+#endif
+    typedef void *io_object_t;
+    typedef io_object_t io_service_t;
+    typedef uint32_t mach_port_t;
+    
+    io_service_t IOServiceGetMatchingService(mach_port_t mainPort, CFDictionaryRef matching);
+    CFMutableDictionaryRef IOServiceMatching(const char *name);
+    CFTypeRef IORegistryEntryCreateCFProperty(io_service_t entry, CFStringRef key, CFAllocatorRef allocator, uint32_t options);
+    kern_return_t IOObjectRelease(io_object_t object);
+#ifdef __cplusplus
+}
+#endif
+
+// 获取真实电池百分比
 static int getPreciseBatteryPercent(void) {
-    mach_port_t mainPort = kIOMainPortDefault;
-    io_service_t service = IOServiceGetMatchingService(mainPort, IOServiceMatching("AppleSmartBattery"));
+    io_service_t service = IOServiceGetMatchingService(0, IOServiceMatching("AppleSmartBattery"));
     if (!service) return 0;
 
-    CFNumberRef currentCapObj = IORegistryEntryCreateCFProperty(service, CFSTR("AppleRawCurrentCapacity"), kCFAllocatorDefault, 0);
-    CFNumberRef maxCapObj = IORegistryEntryCreateCFProperty(service, CFSTR("AppleRawMaxCapacity"), kCFAllocatorDefault, 0);
+    CFNumberRef currentCapObj = (CFNumberRef)IORegistryEntryCreateCFProperty(service, CFSTR("AppleRawCurrentCapacity"), kCFAllocatorDefault, 0);
+    CFNumberRef maxCapObj = (CFNumberRef)IORegistryEntryCreateCFProperty(service, CFSTR("AppleRawMaxCapacity"), kCFAllocatorDefault, 0);
 
     IOObjectRelease(service);
 
@@ -39,7 +53,6 @@ static int getPreciseBatteryPercent(void) {
 - (void)viewDidLoad {
     %orig;
     
-    // 监听电量与省电模式广播
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(updateCowbellLabel)
                                                  name:UIDeviceBatteryLevelDidChangeNotification
@@ -79,7 +92,6 @@ static int getPreciseBatteryPercent(void) {
 
     label.text = [NSString stringWithFormat:@"%d%%", percent];
 
-    // 适配低电量模式颜色
     BOOL isLowPower = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
     if (isLowPower) {
         label.textColor = [UIColor colorWithRed:0.2 green:0.2 blue:0.2 alpha:0.9];
