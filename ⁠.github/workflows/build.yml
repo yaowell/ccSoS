@@ -2,35 +2,36 @@ name: Build Rootless Tweak
 
 on:
   push:
-    branches-ignore: []
-  pull_request:
-    branches-ignore: []
+    branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Theos
-        uses: actions/checkout@v4
-        with:
-          repository: theos/theos
-          ref: master
-          path: theos
-          submodules: recursive
+      - name: Install Dependencies
+        run: |
+          brew install ldid
+
+      - name: Setup Theos & SDKs
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          curl -LO https://github.com/theos/sdks/archive/master.zip
+          unzip -q master.zip
+          mv sdks-master/* $HOME/theos/sdks/
+          rm -rf sdks-master master.zip
 
       - name: Build Package
         run: |
-          export THEOS=$GITHUB_WORKSPACE/theos
-          export PATH=$THEOS/bin:$PATH
-          make package FINALPACKAGE=1
+          export THEOS=$HOME/theos
+          make clean package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1
 
-      - name: Upload DEB Artifact
+      - name: Upload Artifact (.deb)
         uses: actions/upload-artifact@v4
         with:
-          name: CowbellBattery-DEB
+          name: BatteryCC-deb
           path: packages/*.deb
