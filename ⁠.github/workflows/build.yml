@@ -2,9 +2,7 @@ name: Build Rootless Tweak
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [ "**" ]
   workflow_dispatch:
 
 jobs:
