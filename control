@@ -1,7 +1,7 @@
 Package: com.yourname.cowbellbattery
 Name: CowbellBattery
 Depends: mobilesubstrate
-Version: 1.0.0
+Version: 1.0.1
 Architecture: iphoneos-arm64
 Description: Battery percentage for low power CC module on iOS 16 rootless.
 Maintainer: yaowell
