@@ -5,12 +5,12 @@ THEOS_PACKAGE_SCHEME = rootless
 
 include $(THEOS)/makefiles/common.mk
 
-TWEAK_NAME = CowbellBattery
+TWEAK_NAME = cowbellbattery
 
-CowbellBattery_FILES = Tweak.xm
-CowbellBattery_CFLAGS = -fobjc-arc
-CowbellBattery_FRAMEWORKS = UIKit
-CowbellBattery_PRIVATE_FRAMEWORKS = IOKit
+cowbellbattery_FILES = Tweak.xm
+cowbellbattery_CFLAGS = -fobjc-arc
+cowbellbattery_FRAMEWORKS = UIKit
+cowbellbattery_PRIVATE_FRAMEWORKS = IOKit
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 
