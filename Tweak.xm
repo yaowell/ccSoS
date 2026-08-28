@@ -1,57 +1,16 @@
 #import <UIKit/UIKit.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-    typedef void *io_object_t;
-    typedef io_object_t io_service_t;
-    typedef uint32_t mach_port_t;
-    
-    io_service_t IOServiceGetMatchingService(mach_port_t mainPort, CFDictionaryRef matching);
-    CFMutableDictionaryRef IOServiceMatching(const char *name);
-    CFTypeRef IORegistryEntryCreateCFProperty(io_service_t entry, CFStringRef key, CFAllocatorRef allocator, uint32_t options);
-    kern_return_t IOObjectRelease(io_object_t object);
-#ifdef __cplusplus
-}
-#endif
-
-// 獲取精確電量
-static int getPreciseBatteryPercent(void) {
-    io_service_t service = IOServiceGetMatchingService(0, IOServiceMatching("AppleSmartBattery"));
-    if (!service) return 0;
-
-    CFNumberRef currentCapObj = (CFNumberRef)IORegistryEntryCreateCFProperty(service, CFSTR("AppleRawCurrentCapacity"), kCFAllocatorDefault, 0);
-    CFNumberRef maxCapObj = (CFNumberRef)IORegistryEntryCreateCFProperty(service, CFSTR("AppleRawMaxCapacity"), kCFAllocatorDefault, 0);
-
-    IOObjectRelease(service);
-
-    if (!currentCapObj || !maxCapObj) {
-        if (currentCapObj) CFRelease(currentCapObj);
-        if (maxCapObj) CFRelease(maxCapObj);
-        return 0;
-    }
-
-    NSInteger current = 0, max = 0;
-    CFNumberGetValue(currentCapObj, kCFNumberNSIntegerType, &current);
-    CFNumberGetValue(maxCapObj, kCFNumberNSIntegerType, &max);
-
-    CFRelease(currentCapObj);
-    CFRelease(maxCapObj);
-
-    if (max <= 0) return 0;
-    int percent = (int)round(((double)current / (double)max) * 100.0);
-    return (percent < 0) ? 0 : ((percent > 100) ? 100 : percent);
-}
-
-@interface CCUILowPowerModuleViewController : UIViewController
+@interface CCUIRoundButtonViewController : UIViewController
+@property (nonatomic, copy) NSString *glyphState;
 - (void)updateCowbellLabel;
 @end
 
-%hook CCUILowPowerModuleViewController
+%hook CCUIRoundButtonViewController
 
 - (void)viewDidLoad {
     %orig;
     
+    // 监听电量改变广播
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(updateCowbellLabel)
                                                  name:UIDeviceBatteryLevelDidChangeNotification
@@ -62,29 +21,32 @@ static int getPreciseBatteryPercent(void) {
                                                object:nil];
 }
 
-- (void)viewDidAppear:(BOOL)animated {
-    %orig;
-    [self updateCowbellLabel];
-}
-
-- (void)viewWillLayoutSubviews {
+- (void)viewDidLayoutSubviews {
     %orig;
     [self updateCowbellLabel];
 }
 
 %new
 - (void)updateCowbellLabel {
-    UIView *targetContainer = self.view;
-    if (!targetContainer) return;
-
-    int percent = getPreciseBatteryPercent();
-    if (percent == 0) {
-        [UIDevice currentDevice].batteryMonitoringEnabled = YES;
-        float level = [UIDevice currentDevice].batteryLevel;
-        if (level >= 0) percent = (int)round(level * 100.0);
+    // 只有当前 VC 是控制中心低电量模块时才执行
+    NSString *className = NSStringFromClass([self class]);
+    if (![className containsString:@"LowPower"] && ![className containsString:@"Battery"]) {
+        // 如果类名不含 LowPower，再检查父级类名
+        NSString *parentClass = NSStringFromClass([[self parentViewController] class]);
+        if (![parentClass containsString:@"LowPower"]) {
+            return;
+        }
     }
 
-    UILabel *label = (UILabel *)[targetContainer viewWithTag:88888];
+    UIView *targetView = self.view;
+    if (!targetView) return;
+
+    // 获取系统原生电量
+    [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+    float batteryLevel = [UIDevice currentDevice].batteryLevel;
+    int percent = (batteryLevel >= 0) ? (int)round(batteryLevel * 100.0) : 0;
+
+    UILabel *label = (UILabel *)[targetView viewWithTag:88888];
     if (!label) {
         label = [[UILabel alloc] init];
         label.tag = 88888;
@@ -92,25 +54,24 @@ static int getPreciseBatteryPercent(void) {
         label.textAlignment = NSTextAlignmentCenter;
         label.userInteractionEnabled = NO;
         label.translatesAutoresizingMaskIntoConstraints = NO;
-        [targetContainer addSubview:label];
+        [targetView addSubview:label];
 
-        // 強制居中在按鈕圖示下方
         [NSLayoutConstraint activateConstraints:@[
-            [label.centerXAnchor constraintEqualToAnchor:targetContainer.centerXAnchor],
-            [label.bottomAnchor constraintEqualToAnchor:targetContainer.bottomAnchor constant:-6]
+            [label.centerXAnchor constraintEqualToAnchor:targetView.centerXAnchor],
+            [label.bottomAnchor constraintEqualToAnchor:targetView.bottomAnchor constant:-4]
         ]];
     }
 
-    label.text = [NSString stringWithFormat:@"%d%%", percent];
-
-    BOOL isLowPower = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
-    if (isLowPower) {
-        label.textColor = [UIColor colorWithWhite:0.1 alpha:0.9];
+    if (percent > 0) {
+        label.text = [NSString stringWithFormat:@"%d%%", percent];
     } else {
-        label.textColor = [UIColor whiteColor];
+        label.text = @"%";
     }
 
-    [targetContainer bringSubviewToFront:label];
+    BOOL isLowPower = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
+    label.textColor = isLowPower ? [UIColor blackColor] : [UIColor whiteColor];
+
+    [targetView bringSubviewToFront:label];
 }
 
 %end
