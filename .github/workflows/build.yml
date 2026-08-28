@@ -12,7 +12,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Theos & SDK
+      - name: Setup Theos & SDK & Toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y git curl build-essential libplist-dev dpkg
@@ -24,7 +24,13 @@ jobs:
           rm -rf /opt/theos/sdks
           git clone https://github.com/theos/sdks.git --depth 1 /opt/theos/sdks
           
-          # 3. 顯式匯出 THEOS 變數並執行 update-theos（會自動補全 dm.pl 與工具鏈）
+          # 3. 下載並設定 Linux 專用的 iOS Toolchain (LLVM/Clang)
+          mkdir -p /opt/theos/toolchain/linux/iphone
+          curl -LO https://github.com/kabiroberai/swift-toolchain-linux/releases/download/v2.2.0/swift-5.7-ubuntu22.04.tar.xz
+          tar -xf swift-5.7-ubuntu22.04.tar.xz -C /opt/theos/toolchain/linux/iphone --strip-components=1
+          rm swift-5.7-ubuntu22.04.tar.xz
+          
+          # 4. 匯出變數並補全其它 Theos 子模組
           export THEOS=/opt/theos
           /opt/theos/bin/update-theos
           
