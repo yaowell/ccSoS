@@ -12,15 +12,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install Dependencies
+        run: |
+          brew install ldid
+
       - name: Setup Theos & SDKs
         run: |
-          # 1. 克隆 Theos 本體
           git clone --recursive https://github.com/theos/theos.git ~/theos
-          
-          # 2. 下載完整的 iOS SDKs 庫 (修復 SDK 不存在問題)
           rm -rf ~/theos/sdks
           git clone https://github.com/theos/sdks.git ~/theos/sdks
-          
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
       - name: Build Tweak Package
