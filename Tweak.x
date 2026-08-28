@@ -1,67 +1,45 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
-// 1. 明确声明 CCUIContentModuleContentView 继承自 UIView
-@interface CCUIContentModuleContentView : UIView
-@property (nonatomic, strong) UILabel *cbPercentLabel;
-- (void)cb_updateText;
-@end
-
 @interface CCUILowPowerModeModuleViewController : UIViewController
+@property (nonatomic, strong) UILabel *cbPercentLabel;
+- (void)cb_updatePercentText;
 @end
 
-// 2. 挂载动态属性到 UIView 容器
-%hook UIView
-%property (nonatomic, strong) UILabel *cbPercentLabel;
-%end
-
-// 3. 监听低电量 Controller
 %hook CCUILowPowerModeModuleViewController
+
+%property (nonatomic, strong) UILabel *cbPercentLabel;
 
 - (void)viewDidLoad {
     %orig;
     [UIDevice currentDevice].batteryMonitoringEnabled = YES;
 }
 
-- (void)viewWillAppear:(BOOL)animated {
-    %orig;
-    [self.view setNeedsLayout];
-}
-
-%end
-
-// 4. Hook 模块 ContentView 进行 UI 上图下文排版
-%hook CCUIContentModuleContentView
-
-- (void)layoutSubviews {
+- (void)viewDidLayoutSubviews {
     %orig;
     
-    // 判断 Responder 链，仅拦截低电量模块
-    UIResponder *responder = self;
-    while (responder && ![responder isKindOfClass:[UIViewController class]]) {
-        responder = [responder nextResponder];
-    }
+    // 强制允许子视图超出边界展示
+    self.view.clipsToBounds = NO;
     
-    if (!responder || ![NSStringFromClass([responder class]) containsString:@"LowPower"]) {
-        return;
-    }
-
-    CGFloat width = self.bounds.size.width;
-    CGFloat height = self.bounds.size.height;
+    CGFloat width = self.view.bounds.size.width;
+    CGFloat height = self.view.bounds.size.height;
 
     if (width <= 0 || height <= 0) return;
 
-    // A. 向上平移图标视图
-    for (UIView *subview in self.subviews) {
+    // 1. 遍历并向上强制平移原生电池图标（无论是 ImageView 还是 CCUICAPackageView）
+    for (UIView *subview in self.view.subviews) {
         if (subview != self.cbPercentLabel) {
+            // 强行关闭自动布局限制，手动设定 Frame
             subview.translatesAutoresizingMaskIntoConstraints = YES;
-            CGRect frame = subview.frame;
-            frame.origin.y = (height - frame.size.height) / 2 - 7;
-            subview.frame = frame;
+            
+            // 将中心点向上移动 6 个点
+            CGPoint center = subview.center;
+            center.y = (height / 2) - 6;
+            subview.center = center;
         }
     }
 
-    // B. 创建底部百分比 Label
+    // 2. 创建底部的百分比 Label
     if (!self.cbPercentLabel) {
         UILabel *lab = [[UILabel alloc] init];
         lab.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
@@ -70,32 +48,35 @@
         lab.userInteractionEnabled = NO;
 
         self.cbPercentLabel = lab;
-        [self addSubview:lab];
+        [self.view addSubview:lab];
 
+        // 注册电量变化通知
         [[NSNotificationCenter defaultCenter] addObserver:self
-                                                 selector:@selector(cb_updateText)
+                                                 selector:@selector(cb_updatePercentText)
                                                      name:UIDeviceBatteryLevelDidChangeNotification
                                                    object:nil];
     }
 
-    // C. 放置 Label 在最底端
-    self.cbPercentLabel.frame = CGRectMake(0, height - 16, width, 12);
-    [self bringSubviewToFront:self.cbPercentLabel];
+    // 3. 将百分比 Label 放置在模块最底部
+    self.cbPercentLabel.frame = CGRectMake(0, height - 15, width, 12);
+    [self.view bringSubviewToFront:self.cbPercentLabel];
     
-    [self cb_updateText];
+    [self cb_updatePercentText];
 }
 
 %new
-- (void)cb_updateText {
-    float level = [UIDevice currentDevice].batteryLevel;
-    int percent = (level >= 0) ? (int)round(level * 100.0f) : 100;
-    if (self.cbPercentLabel) {
-        self.cbPercentLabel.text = [NSString stringWithFormat:@"%d%%", percent];
-    }
+- (void)cb_updatePercentText {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        float level = [UIDevice currentDevice].batteryLevel;
+        int percent = (level >= 0) ? (int)round(level * 100.0f) : 100;
+        if (self.cbPercentLabel) {
+            self.cbPercentLabel.text = [NSString stringWithFormat:@"%d%%", percent];
+        }
+    });
 }
 
 %end
 
 %ctor {
-    NSLog(@"[SimpleCowbell] LowPowerMode Layout Overrider loaded.");
+    NSLog(@"[SimpleCowbell] Target CCUILowPowerModeModuleViewController directly.");
 }
