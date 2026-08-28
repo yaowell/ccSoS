@@ -16,15 +16,16 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y git curl build-essential libplist-dev dpkg
+          
+          # 1. Clone Theos
           git clone https://github.com/theos/theos.git --depth 1 /opt/theos
+          
+          # 2. 補全 dm.pl 打包腳本
           curl -sS https://raw.githubusercontent.com/theos/dm.pl/master/dm.pl -o /opt/theos/bin/dm.pl
           chmod +x /opt/theos/bin/dm.pl
           
-          # 下載 iOS SDK 補全編譯環境
-          curl -LO https://github.com/theos/sdks/releases/download/v16.5/iPhoneOS16.5.sdk.tar.xz
-          tar -xf iPhoneOS16.5.sdk.tar.xz
-          mv iPhoneOS16.5.sdk /opt/theos/sdks/
-          rm iPhoneOS16.5.sdk.tar.xz
+          # 3. 直接 Git Clone 官方 SDK 庫（徹底解決下載 404 問題）
+          git clone https://github.com/theos/sdks.git --depth 1 /opt/theos/sdks
           
           echo "THEOS=/opt/theos" >> $GITHUB_ENV
 
