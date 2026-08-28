@@ -1,24 +1,32 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
-@interface CCUILowPowerModeModuleViewController : UIViewController
+// 声明 iOS 控制中心低电量模块核心类及其属性
+@interface CCUILowPowerModeModule : UIViewController
 @property (nonatomic, strong) UILabel *cbPercentLabel;
 - (void)cb_updatePercentText;
 @end
 
-%hook CCUILowPowerModeModuleViewController
+%hook CCUILowPowerModeModule
 
 %property (nonatomic, strong) UILabel *cbPercentLabel;
 
 - (void)viewDidLoad {
     %orig;
+    
+    // 开启设备电池状态监听
     [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+    
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(cb_updatePercentText)
+                                                 name:UIDeviceBatteryLevelDidChangeNotification
+                                               object:nil];
 }
 
 - (void)viewDidLayoutSubviews {
     %orig;
-    
-    // 强制允许子视图超出边界展示
+
+    // 防止子视图超越边界时被剪切
     self.view.clipsToBounds = NO;
     
     CGFloat width = self.view.bounds.size.width;
@@ -26,41 +34,37 @@
 
     if (width <= 0 || height <= 0) return;
 
-    // 1. 遍历并向上强制平移原生电池图标（无论是 ImageView 还是 CCUICAPackageView）
+    // 1. 使用 transform 强行将电池图标向上平移 6pt（绕过 Auto Layout 重置）
     for (UIView *subview in self.view.subviews) {
         if (subview != self.cbPercentLabel) {
-            // 强行关闭自动布局限制，手动设定 Frame
-            subview.translatesAutoresizingMaskIntoConstraints = YES;
-            
-            // 将中心点向上移动 6 个点
-            CGPoint center = subview.center;
-            center.y = (height / 2) - 6;
-            subview.center = center;
+            subview.transform = CGAffineTransformMakeTranslation(0, -6);
         }
     }
 
-    // 2. 创建底部的百分比 Label
+    // 2. 初始化或更新底部百分比 Label
     if (!self.cbPercentLabel) {
-        UILabel *lab = [[UILabel alloc] init];
+        UILabel *lab = [[UILabel alloc] initWithFrame:CGRectMake(0, height - 15, width, 12)];
         lab.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
         lab.textColor = [UIColor whiteColor];
         lab.textAlignment = NSTextAlignmentCenter;
         lab.userInteractionEnabled = NO;
 
+        // 添加阴影提升高亮显示时的可读性
+        lab.layer.shadowColor = [UIColor blackColor].CGColor;
+        lab.layer.shadowOffset = CGSizeMake(0, 0);
+        lab.layer.shadowOpacity = 0.5;
+        lab.layer.shadowRadius = 1.0;
+
         self.cbPercentLabel = lab;
         [self.view addSubview:lab];
-
-        // 注册电量变化通知
-        [[NSNotificationCenter defaultCenter] addObserver:self
-                                                 selector:@selector(cb_updatePercentText)
-                                                     name:UIDeviceBatteryLevelDidChangeNotification
-                                                   object:nil];
+    } else {
+        self.cbPercentLabel.frame = CGRectMake(0, height - 15, width, 12);
     }
 
-    // 3. 将百分比 Label 放置在模块最底部
-    self.cbPercentLabel.frame = CGRectMake(0, height - 15, width, 12);
+    // 保证百分比 Label 在最顶层
     [self.view bringSubviewToFront:self.cbPercentLabel];
     
+    // 触发电量更新刷新
     [self cb_updatePercentText];
 }
 
@@ -78,5 +82,5 @@
 %end
 
 %ctor {
-    NSLog(@"[SimpleCowbell] Target CCUILowPowerModeModuleViewController directly.");
+    NSLog(@"[SimpleCowbell] Successfully injected into Control Center.");
 }
