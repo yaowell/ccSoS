@@ -1,66 +1,52 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
-@interface CCUIRoundButtonViewController : UIViewController
+@interface CCUIContentModuleContainerView : UIView
 @property (nonatomic, strong) UILabel *cbPercentLabel;
 - (void)cb_updatePercentText;
 @end
 
-%hook CCUIRoundButtonViewController
+%hook CCUIContentModuleContainerView
 
 %property (nonatomic, strong) UILabel *cbPercentLabel;
 
-- (void)viewDidLoad {
-    %orig;
-    [UIDevice currentDevice].batteryMonitoringEnabled = YES;
-}
-
-- (void)viewDidLayoutSubviews {
+- (void)layoutSubviews {
     %orig;
 
-    // 获取当前按钮视图对应的模块标识/类名
-    NSString *parentClass = NSStringFromClass([self.parentViewController class]);
-    NSString *selfClass = NSStringFromClass([self class]);
-    
-    // 如果不是低电量相关控件，则跳过（注：如果还是没效果，把下面这个 if 整体注释掉，就能强行让控制中心所有按钮都显示电量，以此排除注入问题）
-    BOOL isBatteryModule = [parentClass containsString:@"LowPower"] || [parentClass containsString:@"Battery"] || [selfClass containsString:@"LowPower"];
-    if (!isBatteryModule) {
-        return;
-    }
+    CGFloat width = self.bounds.size.width;
+    CGFloat height = self.bounds.size.height;
 
-    self.view.clipsToBounds = NO;
-    CGFloat width = self.view.bounds.size.width;
-    CGFloat height = self.view.bounds.size.height;
+    // 过滤掉展开的大卡片（如音乐、控制中心展开项），只针对 1x1 的小方块/圆按钮
+    if (width <= 0 || height <= 0 || width > 100 || height > 100) return;
 
-    if (width <= 0 || height <= 0) return;
-
-    // 1. 强制平移内部图标
-    for (UIView *subview in self.view.subviews) {
+    // 1. 将内部子视图整体向上平移 6pt
+    for (UIView *subview in self.subviews) {
         if (subview != self.cbPercentLabel) {
             subview.transform = CGAffineTransformMakeTranslation(0, -6);
         }
     }
 
-    // 2. 注入或更新 Label
+    // 2. 初始化 Label
     if (!self.cbPercentLabel) {
-        UILabel *lab = [[UILabel alloc] initWithFrame:CGRectMake(0, height - 15, width, 12)];
+        UILabel *lab = [[UILabel alloc] initWithFrame:CGRectMake(0, height - 16, width, 12)];
         lab.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
-        lab.textColor = [UIColor whiteColor];
+        lab.textColor = [UIColor yellowColor]; // 使用黄色，方便一眼认出
         lab.textAlignment = NSTextAlignmentCenter;
         lab.userInteractionEnabled = NO;
 
         self.cbPercentLabel = lab;
-        [self.view addSubview:lab];
+        [self addSubview:lab];
 
+        [UIDevice currentDevice].batteryMonitoringEnabled = YES;
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(cb_updatePercentText)
                                                      name:UIDeviceBatteryLevelDidChangeNotification
                                                    object:nil];
     } else {
-        self.cbPercentLabel.frame = CGRectMake(0, height - 15, width, 12);
+        self.cbPercentLabel.frame = CGRectMake(0, height - 16, width, 12);
     }
 
-    [self.view bringSubviewToFront:self.cbPercentLabel];
+    [self bringSubviewToFront:self.cbPercentLabel];
     [self cb_updatePercentText];
 }
 
@@ -76,7 +62,3 @@
 }
 
 %end
-
-%ctor {
-    NSLog(@"[Cowbell] Universal RoundButton Hook Loaded!");
-}
