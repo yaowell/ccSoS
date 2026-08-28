@@ -1,72 +1,76 @@
 #import <UIKit/UIKit.h>
 
-@interface CCUILowPowerModuleViewController : UIViewController
-- (void)updateBatteryLabel;
+@interface CCUIRoundButton : UIView
+@property (nonatomic, strong) UIImageView *glyphImageView;
 @end
+
+@interface CCUIRoundButtonViewController : UIViewController
+@property (nonatomic, strong) CCUIRoundButton *buttonView;
+- (void)updateCowbellText;
+@end
+
+@interface CCUILowPowerModuleViewController : CCUIRoundButtonViewController
+@end
+
 
 %hook CCUILowPowerModuleViewController
 
-- (void)viewDidLoad {
+- (void)viewWillAppear:(BOOL)animated {
     %orig;
-    
-    // 監聽電量變化
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(updateBatteryLabel)
-                                                 name:UIDeviceBatteryLevelDidChangeNotification
-                                               object:nil];
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(updateBatteryLabel)
-                                                 name:NSProcessInfoPowerStateDidChangeNotification
-                                               object:nil];
+    [self updateCowbellText];
 }
 
 - (void)viewDidLayoutSubviews {
     %orig;
-    [self updateBatteryLabel];
+    [self updateCowbellText];
 }
 
 %new
-- (void)updateBatteryLabel {
-    UIView *parentView = self.view;
-    if (!parentView) return;
+- (void)updateCowbellText {
+    // 取得模組主要 View
+    UIView *mainContainer = self.view;
+    if (!mainContainer) return;
 
-    // 獲取當前電量
+    // 取得目前電量
     [UIDevice currentDevice].batteryMonitoringEnabled = YES;
     float level = [UIDevice currentDevice].batteryLevel;
     int percent = (level >= 0) ? (int)round(level * 100.0) : 0;
 
     // 尋找或創建 Label
-    UILabel *label = (UILabel *)[parentView viewWithTag:9999];
+    UILabel *label = (UILabel *)[mainContainer viewWithTag:77777];
     if (!label) {
-        label = [[UILabel alloc] init];
-        label.tag = 9999;
+        label = [[UILabel alloc] initWithFrame:CGRectZero];
+        label.tag = 77777;
         label.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
         label.textAlignment = NSTextAlignmentCenter;
         label.userInteractionEnabled = NO;
         label.translatesAutoresizingMaskIntoConstraints = NO;
         
-        [parentView addSubview:label];
+        // 為了測試 Hook 是否真的加載成功，加一個紅色背景（生效後可删掉）
+        label.backgroundColor = [UIColor colorWithRed:1.0 green:0.0 blue:0.0 alpha:0.5];
+        
+        [mainContainer addSubview:label];
 
-        // 將 Label 強制固定在按鈕視圖的正中央偏下方
+        // 綁定 AutoLayout 邊界，強制跟隨父視圖大小
         [NSLayoutConstraint activateConstraints:@[
-            [label.centerXAnchor constraintEqualToAnchor:parentView.centerXAnchor],
-            [label.centerYAnchor constraintEqualToAnchor:parentView.centerYAnchor constant:12]
+            [label.centerXAnchor constraintEqualToAnchor:mainContainer.centerXAnchor],
+            [label.centerYAnchor constraintEqualToAnchor:mainContainer.centerYAnchor constant:10],
+            [label.widthAnchor constraintEqualToAnchor:mainContainer.widthAnchor],
+            [label.heightAnchor constraintEqualToConstant:16]
         ]];
     }
 
-    // 設定顯示文字
     if (percent > 0) {
         label.text = [NSString stringWithFormat:@"%d%%", percent];
     } else {
-        label.text = @"%";
+        label.text = @"99%"; // 測試預設值
     }
 
-    // 低電量模式開啟時文字變黑色，否則為白色
     BOOL isLowPower = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
     label.textColor = isLowPower ? [UIColor blackColor] : [UIColor whiteColor];
 
-    // 強制置頂，防止被圖示遮擋
-    [parentView bringSubviewToFront:label];
+    // 關鍵操作：強制置於最高層
+    [mainContainer bringSubviewToFront:label];
 }
 
 %end
