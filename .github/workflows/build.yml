@@ -1,38 +1,32 @@
-name: Build Rootless Tweak
-
+name: Build SimpleCowbell Rootless Tweak
 on:
   push:
-    branches: [ "**" ]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-14
-
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Setup Theos
-        uses: actions/checkout@v4
-        with:
-          repository: theos/theos
-          ref: master
-          path: theos
-          submodules: recursive
-
-      - name: Install Dependencies
+      - name: Prepare Rootless‑Theos
         run: |
-          brew install ldid
+          sudo apt-get update
+          sudo apt-get install -y git curl build-essential libplist-dev
+          git clone https://github.com/theos/theos.git --depth 1 /opt/theos
+          cd /opt/theos
+          git checkout rootless
+          echo "THEOS=/opt/theos" >> $GITHUB_ENV
 
-      - name: Build Package
+      - name: Compile tweak ROOTLESS=1
         run: |
-          export THEOS=$GITHUB_WORKSPACE/theos
-          export PATH=$THEOS/bin:$PATH
-          make package FINALPACKAGE=1
+          make clean
+          make package ROOTLESS=1
 
-      - name: Upload DEB Artifact
+      - name: Upload deb artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CowbellBattery-DEB
           path: packages/*.deb
+          name: SimpleCowbell-deb
