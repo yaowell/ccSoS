@@ -24,12 +24,13 @@ jobs:
           rm -rf /opt/theos/sdks
           git clone https://github.com/theos/sdks.git --depth 1 /opt/theos/sdks
           
-          # 3. 自動補全 Linux 編譯所需的 vendor 模組與工具鏈
-          /opt/theos/bin/update-theos
-          
-          # 4. 補全 dm.pl 打包腳本
+          # 3. 補全 dm.pl 打包腳本
           curl -sS https://raw.githubusercontent.com/theos/dm.pl/master/dm.pl -o /opt/theos/bin/dm.pl
           chmod +x /opt/theos/bin/dm.pl
+          
+          # 4. 顯式匯出 THEOS 變數並執行 update-theos 補全 Linux 工具鏈
+          export THEOS=/opt/theos
+          /opt/theos/bin/update-theos
           
           echo "THEOS=/opt/theos" >> $GITHUB_ENV
 
