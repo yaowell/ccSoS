@@ -2,7 +2,7 @@ Package: com.yourname.simplecowbell
 Name: SimpleCowbell
 Depends: mobilesubstrate
 Version: 1.0.0
-Architecture: iphoneos-arm
+Architecture: iphoneos-arm64
 Description: An awesome Control Center tweak!
 Maintainer: YourName
 Author: YourName
