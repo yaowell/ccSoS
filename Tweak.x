@@ -2,100 +2,101 @@
 #import <objc/runtime.h>
 
 @interface CCUILowPowerModeModuleViewController : UIViewController
+@end
+
+// 声明全局电量百分比 Label 动态属性
+@interface UIView (Cowbell)
 @property (nonatomic, strong) UILabel *cbPercentLabel;
-@property (nonatomic, assign) BOOL cb_observerRegistered;
-- (void)cb_updatePercentText;
 @end
 
-@interface CCUILowPowerModeModule : NSObject
-@end
+%hook UIView
 
-%hook CCUILowPowerModeModule
+%property (nonatomic, strong) UILabel *cbPercentLabel;
 
-- (UIViewController *)contentViewController {
-    UIViewController *vc = %orig;
-    Class targetClass = NSClassFromString(@"CCUILowPowerModeModuleViewController");
-    
-    if (vc && targetClass && [vc isKindOfClass:targetClass]) {
-        CCUILowPowerModeModuleViewController *lpVc = (CCUILowPowerModeModuleViewController *)vc;
-        [UIDevice currentDevice].batteryMonitoringEnabled = YES;
-        
-        if (!lpVc.cb_observerRegistered) {
-            lpVc.cb_observerRegistered = YES;
-            [[NSNotificationCenter defaultCenter] addObserver:lpVc
-                                                     selector:@selector(cb_updatePercentText)
-                                                         name:UIDeviceBatteryLevelDidChangeNotification
-                                                       object:nil];
-        }
-    }
-    return vc;
+%end
+
+// 1. Hook 低电量模块的 Controller，确保开启电量监听
+%hook CCUILowPowerModeModuleViewController
+
+- (void)viewDidLoad {
+    %orig;
+    [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    %orig;
+    [self.view setNeedsLayout];
 }
 
 %end
 
-%hook CCUILowPowerModeModuleViewController
-%property (nonatomic, strong) UILabel *cbPercentLabel;
-%property (nonatomic, assign) BOOL cb_observerRegistered;
+// 2. 直接 Hook 控制中心模块 Content View 的 layoutSubviews
+%hook CCUIContentModuleContentView
 
-- (void)viewDidLayoutSubviews {
+- (void)layoutSubviews {
     %orig;
     
-    self.view.clipsToBounds = NO;
-    CGFloat width = self.view.bounds.size.width;
-    CGFloat height = self.view.bounds.size.height;
+    // 确认当前 View 是否属于低电量模块
+    UIResponder *responder = self;
+    while (responder && ![responder isKindOfClass:[UIViewController class]]) {
+        responder = [responder nextResponder];
+    }
     
+    if (!responder || ![NSStringFromClass([responder class]) containsString:@"LowPower"]) {
+        return;
+    }
+
+    CGFloat width = self.bounds.size.width;
+    CGFloat height = self.bounds.size.height;
+
     if (width <= 0 || height <= 0) return;
 
-    // 1. 將原生電池 Glyph/ImageView 向上微移，給底部留出文字空間
-    for (UIView *subview in self.view.subviews) {
+    // A. 将原生的 Icon/Glyph 视图整体向上平移，并关闭 translatesAutoresizingMaskIntoConstraints
+    for (UIView *subview in self.subviews) {
         if (subview != self.cbPercentLabel) {
-            // 向上平移 6 個點，縮小一點點高度
-            subview.frame = CGRectMake(0, -6, width, height - 8);
+            subview.translatesAutoresizingMaskIntoConstraints = YES; // 允许手动改 Frame
+            CGRect frame = subview.frame;
+            frame.origin.y = (height - frame.size.height) / 2 - 7; // 向上偏移 7pt
+            subview.frame = frame;
         }
     }
 
-    // 2. 初始化底部百分比 Label
+    // B. 初始化底部百分比 Label
     if (!self.cbPercentLabel) {
         UILabel *lab = [[UILabel alloc] init];
-        lab.font = [UIFont systemFontOfSize:10 weight:UIFontWeightMedium];
+        lab.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
         lab.textColor = [UIColor whiteColor];
         lab.textAlignment = NSTextAlignmentCenter;
         lab.userInteractionEnabled = NO;
 
         self.cbPercentLabel = lab;
-        [self.view addSubview:lab];
+        [self addSubview:lab];
+
+        // 注册电量变化通知
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(cb_updateText)
+                                                     name:UIDeviceBatteryLevelDidChangeNotification
+                                                   object:nil];
     }
 
-    // 3. 將 Label 擺放在模組底端 (高度 14pt)
-    self.cbPercentLabel.frame = CGRectMake(0, height - 16, width, 14);
-    [self.view bringSubviewToFront:self.cbPercentLabel];
+    // C. 放置 Label 在最底部
+    self.cbPercentLabel.frame = CGRectMake(0, height - 16, width, 12);
+    [self bringSubviewToFront:self.cbPercentLabel];
     
-    [self cb_updatePercentText];
+    [self cb_updateText];
 }
 
 %new
-- (void)cb_updatePercentText {
-    __weak typeof(self) weakSelf = self;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        __strong typeof(weakSelf) strongSelf = weakSelf;
-        if (!strongSelf || !strongSelf.cbPercentLabel) return;
-        
-        float level = [UIDevice currentDevice].batteryLevel;
-        int percent = (level >= 0) ? (int)round(level * 100.0f) : 100;
-        
-        strongSelf.cbPercentLabel.text = [NSString stringWithFormat:@"%d%%", percent];
-    });
-}
-
-- (void)dealloc {
-    if (self.cb_observerRegistered) {
-        [[NSNotificationCenter defaultCenter] removeObserver:self];
+- (void)cb_updateText {
+    float level = [UIDevice currentDevice].batteryLevel;
+    int percent = (level >= 0) ? (int)round(level * 100.0f) : 100;
+    if (self.cbPercentLabel) {
+        self.cbPercentLabel.text = [NSString stringWithFormat:@"%d%%", percent];
     }
-    %orig;
 }
 
 %end
 
 %ctor {
-    NSLog(@"[SimpleCowbell] LowPowerMode vertical layout loaded.");
+    NSLog(@"[SimpleCowbell] LowPowerMode Layout Overrider loaded.");
 }
