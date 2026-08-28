@@ -1,9 +1,9 @@
-Package: com.yourname.simplecowbell
-Name: SimpleCowbell
-Depends: mobilesubstrate (>= 0.9.5000)
-Version: 0.0.1
-Architecture: iphoneos-arm64e
-Description: CC Low Power Mode Percent Tweak
-Maintainer: YourName
-Author: YourName
+Package: com.yaowell.cowbelllite
+Name: CowbellLite
+Depends: mobilesubstrate
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: 在控制中心低电量模块显示电量百分比，支持智能反色。致敬 LaughingQuoll。
+Maintainer: yaowell
+Author: yaowell
 Section: Tweaks
