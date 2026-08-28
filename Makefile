@@ -8,6 +8,6 @@ TWEAK_NAME = cowbellbattery
 
 cowbellbattery_FILES = Tweak.xm
 cowbellbattery_CFLAGS = -fobjc-arc
-cowbellbattery_FRAMEWORKS = UIKit CoreGraphics
+cowbellbattery_FRAMEWORKS = UIKit
 
 include $(THEOS_MAKE_PATH)/tweak.mk
