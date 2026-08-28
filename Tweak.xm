@@ -1,85 +1,94 @@
 #import <UIKit/UIKit.h>
 
-@interface CCUILowPowerModuleViewController : UIViewController
-- (void)cc_updateBatteryLabel;
+@interface CCUIRoundButton : UIView
+@property (nonatomic, strong) UIImageView *glyphImageView;
+- (void)cc_addBatteryLabel;
 @end
 
-@interface CCUIRoundButtonViewController : UIViewController
-- (void)cc_updateBatteryLabel;
-@end
+%hook CCUIRoundButton
 
-// 宣告 Hook Group
-%group CCBatteryGroup
-
-%hook CCUILowPowerModuleViewController
-
-- (void)viewDidLayoutSubviews {
+- (void)layoutSubviews {
     %orig;
-    [self cc_updateBatteryLabel];
+    [self cc_addBatteryLabel];
 }
 
 %new
-- (void)cc_updateBatteryLabel {
-    UIView *container = self.view;
-    if (!container || container.bounds.size.width <= 0) return;
+- (void)cc_addBatteryLabel {
+    // 1. 取得按鈕內部的圖標（Glyph）
+    UIImageView *glyph = nil;
+    if ([self respondsToSelector:@selector(glyphImageView)]) {
+        glyph = [self glyphImageView];
+    }
+    
+    // 如果找不到 Glyph，遍歷子視圖尋找 UIImageView
+    if (!glyph) {
+        for (UIView *subview in self.subviews) {
+            if ([subview isKindOfClass:[UIImageView class]]) {
+                glyph = (UIImageView *)subview;
+                break;
+            }
+        }
+    }
 
-    // 開啟電量監測
+    // 2. 特徵識別：檢查圖標名稱或 AccessibilityIdentifier 是不是電池（LowPower / Battery）
+    BOOL isBatteryModule = NO;
+    if (glyph && glyph.image) {
+        NSString *imageName = glyph.image.accessibilityIdentifier ?: @"";
+        // 系統低電量圖紙通常包含 battery, lowpower 或 battery.controlcenter
+        if ([imageName.lowercaseString containsString:@"battery"] || [imageName.lowercaseString containsString:@"lowpower"]) {
+            isBatteryModule = YES;
+        }
+    }
+
+    // 備用識別：如果無法讀取圖片名稱，檢查父層 Bundle/ViewController 類名
+    if (!isBatteryModule) {
+        UIResponder *responder = self.nextResponder;
+        while (responder) {
+            NSString *clsName = NSStringFromClass([responder class]);
+            if ([clsName containsString:@"LowPower"]) {
+                isBatteryModule = YES;
+                break;
+            }
+            responder = responder.nextResponder;
+        }
+    }
+
+    // 如果不是低電量按鈕，直接退出（不干擾手電筒等其他按鈕）
+    if (!isBatteryModule) return;
+
+    // 3. 開始繪製電量百分比 Label
+    CGFloat width = self.bounds.size.width;
+    CGFloat height = self.bounds.size.height;
+    if (width <= 0 || height <= 0) return;
+
     [UIDevice currentDevice].batteryMonitoringEnabled = YES;
     float level = [UIDevice currentDevice].batteryLevel;
     int percent = (level >= 0) ? (int)round(level * 100.0) : 0;
 
-    UILabel *label = (UILabel *)[container viewWithTag:88888];
+    UILabel *label = (UILabel *)[self viewWithTag:99999];
     if (!label) {
         label = [[UILabel alloc] init];
-        label.tag = 88888;
-        label.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
+        label.tag = 99999;
+        label.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
         label.textAlignment = NSTextAlignmentCenter;
         label.userInteractionEnabled = NO;
-        [container addSubview:label];
+        [self addSubview:label];
     }
 
-    // 設定絕對佈局（底部 8pt 位置）
-    CGFloat width = container.bounds.size.width;
-    CGFloat height = container.bounds.size.height;
-    label.frame = CGRectMake(0, height - 18, width, 14);
+    // 強制定位在按鈕圓形的底部偏中位置
+    label.frame = CGRectMake(0, height - 16, width, 12);
 
-    label.text = (percent > 0) ? [NSString stringWithFormat:@"%d%%", percent] : @"--%";
+    if (percent > 0) {
+        label.text = [NSString stringWithFormat:@"%d%%", percent];
+    } else {
+        label.text = @"%";
+    }
 
-    BOOL isLowPower = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
-    label.textColor = isLowPower ? [UIColor blackColor] : [UIColor whiteColor];
+    BOOL isLPMEnabled = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
+    label.textColor = isLPMEnabled ? [UIColor blackColor] : [UIColor whiteColor];
 
-    [container bringSubviewToFront:label];
+    // 確保浮在最頂層
+    [self bringSubviewToFront:label];
 }
 
 %end
-
-%end // end group
-
-// 解決動態加載 Bundle 的致命死穴
-%ctor {
-    @autoreleasepool {
-        void (^initTweak)(void) = ^{
-            static dispatch_once_t onceToken;
-            dispatch_once(&onceToken, ^{
-                %init(CCBatteryGroup);
-            });
-        };
-
-        // 檢查 LowPowerModule 是否已載入
-        NSBundle *lpmBundle = [NSBundle bundleWithIdentifier:@"com.apple.controlcenter.LowPowerModule"];
-        if (lpmBundle && lpmBundle.isLoaded) {
-            initTweak();
-        } else {
-            // 未載入時，監聽 Bundle 載入廣播
-            [[NSNotificationCenter defaultCenter] addObserverForName:NSBundleDidLoadNotification
-                                                              object:nil
-                                                               queue:nil
-                                                          usingBlock:^(NSNotification *note) {
-                NSBundle *bundle = [note object];
-                if ([bundle.bundleIdentifier isEqualToString:@"com.apple.controlcenter.LowPowerModule"]) {
-                    initTweak();
-                }
-            }];
-        }
-    }
-}
