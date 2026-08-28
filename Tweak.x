@@ -15,7 +15,7 @@
 - (void)layoutSubviews {
     %orig;
 
-    // 1. 如果不是低电量模块，直接隐藏 Label 并返回
+    // 1. 不是低电量模块，一律隐藏 Label 并返回
     if (![self cb_isLowPowerModule]) {
         if (self.cbPercentLabel) {
             self.cbPercentLabel.hidden = YES;
@@ -35,7 +35,7 @@
         }
     }
 
-    // 3. 创建/显示底部的白色电量 Label
+    // 3. 渲染白色电量 Label
     if (!self.cbPercentLabel) {
         UILabel *lab = [[UILabel alloc] initWithFrame:CGRectMake(0, height - 16, width, 12)];
         lab.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
@@ -62,29 +62,23 @@
 
 %new
 - (BOOL)cb_isLowPowerModule {
-    // A. 优先检查 CCUIContentModuleContainerView 自带的 moduleIdentifier 私有属性
+    // 精确匹配：只要 iOS 原生的低电量模块标识，剔除通用 battery 干扰
     if ([self respondsToSelector:@selector(moduleIdentifier)]) {
         NSString *modID = [self performSelector:@selector(moduleIdentifier)];
-        if ([modID containsString:@"LowPower"] || [modID containsString:@"low-power"] || [modID containsString:@"battery"]) {
+        if ([modID isEqualToString:@"com.apple.control-center.LowPowerModule"] || 
+            [modID containsString:@"LowPowerModule"]) {
             return YES;
         }
     }
 
-    // B. 检查 View 的 responder 链条中的 Controller 类名
+    // 响应链精准查找，避免混淆其他第三方电池视图
     UIResponder *responder = self;
     while (responder) {
         NSString *clsName = NSStringFromClass([responder class]);
-        if ([clsName containsString:@"LowPower"] || [clsName containsString:@"Battery"]) {
+        if ([clsName containsString:@"CCUILowPowerModeModule"]) {
             return YES;
         }
         responder = [responder nextResponder];
-    }
-
-    // C. 检查 accessibility 标识
-    if ([self.accessibilityIdentifier containsString:@"low-power"] || 
-        [self.accessibilityLabel containsString:@"低电量"] || 
-        [self.accessibilityLabel containsString:@"Low Power"]) {
-        return YES;
     }
 
     return NO;
