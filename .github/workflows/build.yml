@@ -1,29 +1,32 @@
 name: Build SimpleCowbell Rootless
+
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
 
-concurrency:
-  group: ${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Setup Theos
-        uses: Randomblock1/theos-action@master
-
-      - name: Build rootless deb
         run: |
-          make clean
-          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1
+          sudo apt-get update
+          sudo apt-get install -y git curl build-essential libplist-dev
+          git clone https://github.com/theos/theos.git --depth 1 /opt/theos
+          echo "THEOS=/opt/theos" >> $GITHUB_ENV
 
-      - name: Upload artifact
+      - name: Build Tweak Package
+        run: |
+          export THEOS=/opt/theos
+          make clean
+          make package ROOTLESS=1
+
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          path: packages/*.deb
           name: SimpleCowbell-deb
+          path: packages/*.deb
