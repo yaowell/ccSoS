@@ -15,7 +15,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y git curl build-essential libplist-dev
-          # 重点：使用sbingner的rootless专用theos fork，不再用官方theos的rootless分支（已删除）
           git clone https://github.com/sbingner/theos.git --depth 1 /opt/theos
           echo "THEOS=/opt/theos" >> $GITHUB_ENV
 
