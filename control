@@ -1,7 +1,0 @@
-Package: com.yourname.simplecowbell
-Name: SimpleCowbell
-Version: 0.0.1
-Architecture: arm64 arm64e
-Maintainer: YourName
-Description: Test tweak
-Depends: mobilesubstrate, firmware (>=15.0)
