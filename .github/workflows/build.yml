@@ -7,38 +7,18 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest  # 切換至 macOS 環境
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Theos & SDK & Toolchain
+      - name: Setup Theos
         run: |
-          sudo apt-get update
-          sudo apt-get install -y git curl build-essential libplist-dev dpkg
-          
-          # 1. 克隆 Theos 本體
-          git clone https://github.com/theos/theos.git --depth 1 /opt/theos
-          
-          # 2. 刪除預設空 sdks 並克隆完整 SDK 庫
-          rm -rf /opt/theos/sdks
-          git clone https://github.com/theos/sdks.git --depth 1 /opt/theos/sdks
-          
-          # 3. 下載並設定 Linux 專用的 iOS Toolchain (LLVM/Clang)
-          mkdir -p /opt/theos/toolchain/linux/iphone
-          curl -LO https://github.com/kabiroberai/swift-toolchain-linux/releases/download/v2.2.0/swift-5.7-ubuntu22.04.tar.xz
-          tar -xf swift-5.7-ubuntu22.04.tar.xz -C /opt/theos/toolchain/linux/iphone --strip-components=1
-          rm swift-5.7-ubuntu22.04.tar.xz
-          
-          # 4. 匯出變數並補全其它 Theos 子模組
-          export THEOS=/opt/theos
-          /opt/theos/bin/update-theos
-          
-          echo "THEOS=/opt/theos" >> $GITHUB_ENV
+          git clone --recursive https://github.com/theos/theos.git ~/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
       - name: Build Tweak Package
         run: |
-          export THEOS=/opt/theos
           make clean
           make package ROOTLESS=1
 
