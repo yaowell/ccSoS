@@ -1,35 +1,58 @@
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h>
 
-@interface CCUIControlCenterViewController : UIViewController
-- (void)printSubviews:(UIView *)v depth:(int)d;
+@interface CCUIBatteryModule : UIView
+- (void)cb_updateBatteryText;
+- (void)cb_walkAndSetPercent:(UIView *)root text:(NSString *)text;
 @end
 
-%hook CCUIControlCenterViewController
+%hook CCUIBatteryModule
 
-- (void)viewDidAppear:(BOOL)animated {
+- (void)didMoveToSuperview {
     %orig;
-    NSLog(@"[DebugTweak] ===== 【控制中心視圖樹開始打印】 =====");
-    [self printSubviews:self.view depth:0];
-    NSLog(@"[DebugTweak] ===== 【打印結束】 =====");
+    [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+    
+    // 監聽電量變化
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(cb_updateBatteryText)
+                                                 name:UIDeviceBatteryLevelDidChangeNotification
+                                               object:nil];
+    [self cb_updateBatteryText];
+}
+
+- (void)layoutSubviews {
+    %orig;
+    [self cb_updateBatteryText];
 }
 
 %new
-- (void)printSubviews:(UIView *)v depth:(int)d {
-    NSMutableString *pad = [NSMutableString string];
-    for (int i = 0; i < d; i++) {
-        [pad appendString:@"  "];
-    }
+- (void)cb_updateBatteryText {
+    [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+    float level = [UIDevice currentDevice].batteryLevel;
     
-    // 輸出當前 View 的類名
-    NSLog(@"[DebugTweak] %@%@", pad, NSStringFromClass([v class]));
+    int p = (level >= 0) ? (int)round(level * 100.0f) : 100;
+    NSString *newText = [NSString stringWithFormat:@"%d%%", p];
     
-    for (UIView *sv in v.subviews) {
-        [self printSubviews:sv depth:d + 1];
+    [self cb_walkAndSetPercent:self text:newText];
+}
+
+%new
+- (void)cb_walkAndSetPercent:(UIView *)root text:(NSString *)text {
+    for (UIView *v in root.subviews) {
+        if ([v isKindOfClass:[UILabel class]]) {
+            UILabel *lab = (UILabel *)v;
+            // 核心防死迴圈：只有當文字真的改變時才賦值，防止觸發 layoutSubviews 死迴圈
+            if (![lab.text isEqualToString:text]) {
+                lab.text = text;
+            }
+        } else if (v.subviews.count > 0) {
+            [self cb_walkAndSetPercent:v text:text];
+        }
     }
 }
 
 %end
 
 %ctor {
-    NSLog(@"[DebugTweak] SpringBoard injected OK");
+    NSLog(@"[SimpleCowbell] Hook CCUIBatteryModule loaded");
 }
