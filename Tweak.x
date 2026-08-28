@@ -2,9 +2,9 @@
 #import <objc/runtime.h>
 
 @interface CCUILowPowerModeModuleViewController : UIViewController
+@property (nonatomic, strong) UILabel *cbPercentLabel;
 @property (nonatomic, assign) BOOL cb_observerRegistered;
-- (void)cb_updateLabelText;
-- (void)cb_findAndSetLabelText:(UIView *)parent text:(NSString *)text;
+- (void)cb_updatePercentText;
 @end
 
 @interface CCUILowPowerModeModule : NSObject
@@ -23,7 +23,7 @@
         if (!lpVc.cb_observerRegistered) {
             lpVc.cb_observerRegistered = YES;
             [[NSNotificationCenter defaultCenter] addObserver:lpVc
-                                                     selector:@selector(cb_updateLabelText)
+                                                     selector:@selector(cb_updatePercentText)
                                                          name:UIDeviceBatteryLevelDidChangeNotification
                                                        object:nil];
         }
@@ -34,60 +34,68 @@
 %end
 
 %hook CCUILowPowerModeModuleViewController
+%property (nonatomic, strong) UILabel *cbPercentLabel;
 %property (nonatomic, assign) BOOL cb_observerRegistered;
-
-- (void)viewWillAppear:(BOOL)animated {
-    %orig;
-    [self cb_updateLabelText];
-}
 
 - (void)viewDidLayoutSubviews {
     %orig;
-    // 確保視圖完成首組 Layout 後再刷一次，防止 viewWillAppear 時子視圖尚未 Attach
-    [self cb_updateLabelText];
-}
-
-%new
-- (void)cb_updateLabelText {
-    // 切換回主線程執行 UI 更新
-    dispatch_async(dispatch_get_main_queue(), ^{
-        float level = [UIDevice currentDevice].batteryLevel;
-        int percent = (level >= 0) ? (int)round(level * 100.0f) : 100;
-        NSString *percentStr = [NSString stringWithFormat:@"%d%%", percent];
-        
-        if (self.view) {
-            [self cb_findAndSetLabelText:self.view text:percentStr];
-        }
-        NSLog(@"[SimpleCowbell] cb_updateLabelText trigger: %@", percentStr);
-    });
-}
-
-%new
-- (void)cb_findAndSetLabelText:(UIView *)parent text:(NSString *)text {
-    if (!parent) return;
     
-    for (UIView *subview in parent.subviews) {
-        if ([subview isKindOfClass:[UILabel class]]) {
-            UILabel *label = (UILabel *)subview;
-            NSLog(@"[SimpleCowbell] Found label, oldText: %@", label.text);
-            if (![label.text isEqualToString:text]) {
-                label.text = text;
-            }
-        } else if (subview.subviews.count > 0) {
-            [self cb_findAndSetLabelText:subview text:text];
+    self.view.clipsToBounds = NO;
+    CGFloat width = self.view.bounds.size.width;
+    CGFloat height = self.view.bounds.size.height;
+    
+    if (width <= 0 || height <= 0) return;
+
+    // 1. 將原生電池 Glyph/ImageView 向上微移，給底部留出文字空間
+    for (UIView *subview in self.view.subviews) {
+        if (subview != self.cbPercentLabel) {
+            // 向上平移 6 個點，縮小一點點高度
+            subview.frame = CGRectMake(0, -6, width, height - 8);
         }
     }
+
+    // 2. 初始化底部百分比 Label
+    if (!self.cbPercentLabel) {
+        UILabel *lab = [[UILabel alloc] init];
+        lab.font = [UIFont systemFontOfSize:10 weight:UIFontWeightMedium];
+        lab.textColor = [UIColor whiteColor];
+        lab.textAlignment = NSTextAlignmentCenter;
+        lab.userInteractionEnabled = NO;
+
+        self.cbPercentLabel = lab;
+        [self.view addSubview:lab];
+    }
+
+    // 3. 將 Label 擺放在模組底端 (高度 14pt)
+    self.cbPercentLabel.frame = CGRectMake(0, height - 16, width, 14);
+    [self.view bringSubviewToFront:self.cbPercentLabel];
+    
+    [self cb_updatePercentText];
+}
+
+%new
+- (void)cb_updatePercentText {
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf || !strongSelf.cbPercentLabel) return;
+        
+        float level = [UIDevice currentDevice].batteryLevel;
+        int percent = (level >= 0) ? (int)round(level * 100.0f) : 100;
+        
+        strongSelf.cbPercentLabel.text = [NSString stringWithFormat:@"%d%%", percent];
+    });
 }
 
 - (void)dealloc {
     if (self.cb_observerRegistered) {
         [[NSNotificationCenter defaultCenter] removeObserver:self];
     }
-    %orig; // 遵循规范：先清理自身 Observer/状态，再调用父类/原生的 %orig 销毁
+    %orig;
 }
 
 %end
 
 %ctor {
-    NSLog(@"[SimpleCowbell] LowPowerModule precision hook loaded successfully.");
+    NSLog(@"[SimpleCowbell] LowPowerMode vertical layout loaded.");
 }
