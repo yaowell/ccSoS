@@ -12,17 +12,24 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Theos
-        uses: theos/sdks@master
-        with:
-          path: /opt/theos
-
-      - name: Install Dependencies
+      - name: Setup Theos & SDK
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libplist-dev dpkg curl
+          sudo apt-get install -y git curl build-essential libplist-dev dpkg
+          
+          # 1. 克隆 Theos
+          git clone https://github.com/theos/theos.git --depth 1 /opt/theos
+          
+          # 2. 刪除預設的空 sdks 資料夾，防止 clone 衝突
+          rm -rf /opt/theos/sdks
+          
+          # 3. 克隆 SDK 庫到 sdks 目錄
+          git clone https://github.com/theos/sdks.git --depth 1 /opt/theos/sdks
+          
+          # 4. 補全 dm.pl 打包腳本
           curl -sS https://raw.githubusercontent.com/theos/dm.pl/master/dm.pl -o /opt/theos/bin/dm.pl
           chmod +x /opt/theos/bin/dm.pl
+          
           echo "THEOS=/opt/theos" >> $GITHUB_ENV
 
       - name: Build Tweak Package
