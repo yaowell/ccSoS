@@ -8,7 +8,6 @@
 		<array>
 			<string>com.apple.springboard</string>
 			<string>com.apple.ControlCenter</string>
-			<string>com.apple.ControlCenter.LowPowerModeModule</string>
 		</array>
 	</dict>
 </dict>
