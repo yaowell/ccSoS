@@ -11,19 +11,22 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Prepare Rootless‑Theos
+      - name: Setup Theos
         run: |
           sudo apt-get update
-          sudo apt-get install -y git curl build-essential libplist-dev
-          git clone https://github.com/sbingner/theos.git --depth 1 /opt/theos
-          echo "THEOS=/opt/theos" >> $GITHUB_ENV
+          sudo apt-get install -y git curl build-essential libplist-dev perl
+          export THEOS=/opt/theos
+          git clone https://github.com/theos/theos.git $THEOS
+          cd $THEOS
+          ./install.sh
+          echo "THEOS=$THEOS" >> $GITHUB_ENV
 
-      - name: Compile tweak ROOTLESS=1
+      - name: Compile ROOTLESS=1
         run: |
           make clean
           make package ROOTLESS=1
 
-      - name: Upload deb artifact
+      - name: Upload deb
         uses: actions/upload-artifact@v4
         with:
           path: packages/*.deb
