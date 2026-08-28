@@ -8,9 +8,11 @@ TWEAK_NAME = SimpleCowbell
 $(TWEAK_NAME)_FILES = Tweak.x
 $(TWEAK_NAME)_CFLAGS = -fobjc-arc
 $(TWEAK_NAME)_FRAMEWORKS = UIKit CoreGraphics
-$(TWEAK_NAME)_PRIVATE_FRAMEWORKS = ControlCenterUIKit ControlCenterUI
 
-# 修正：移除 -Xtheos，保留 64 位页面对齐参数
+# 移除 PRIVATE_FRAMEWORKS，避免 Linker 找不到 SDK 私有框架標頭
+# $(TWEAK_NAME)_PRIVATE_FRAMEWORKS = ControlCenterUIKit ControlCenterUI
+
+# 保留 RootHide / Dopamine 64 位頁面對齊參數
 $(TWEAK_NAME)_LDFLAGS += -Wl,-segalign,0x4000
 
 include $(THEOS_MAKE_PATH)/tweak.mk
