@@ -11,17 +11,10 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Setup Theos
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y git curl build-essential libplist-dev perl
-          export THEOS=/opt/theos
-          git clone https://github.com/theos/theos.git $THEOS
-          cd $THEOS
-          ./install.sh
-          echo "THEOS=$THEOS" >> $GITHUB_ENV
+      - name: Setup‑Theos official action
+        uses: theos/setup-theos@v1
 
-      - name: Compile ROOTLESS=1
+      - name: Build & package rootless
         run: |
           make clean
           make package ROOTLESS=1
