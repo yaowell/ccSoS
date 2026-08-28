@@ -17,14 +17,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git curl build-essential libplist-dev dpkg
           
-          # 1. 克隆 Theos
+          # 1. 克隆 Theos 本體
           git clone https://github.com/theos/theos.git --depth 1 /opt/theos
           
-          # 2. 刪除預設的空 sdks 資料夾，防止 clone 衝突
+          # 2. 刪除預設空 sdks 並克隆完整 SDK 庫
           rm -rf /opt/theos/sdks
-          
-          # 3. 克隆 SDK 庫到 sdks 目錄
           git clone https://github.com/theos/sdks.git --depth 1 /opt/theos/sdks
+          
+          # 3. 自動補全 Linux 編譯所需的 vendor 模組與工具鏈
+          /opt/theos/bin/update-theos
           
           # 4. 補全 dm.pl 打包腳本
           curl -sS https://raw.githubusercontent.com/theos/dm.pl/master/dm.pl -o /opt/theos/bin/dm.pl
