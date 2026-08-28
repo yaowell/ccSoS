@@ -15,8 +15,10 @@ jobs:
       - name: Setup Theos
         run: |
           sudo apt-get update
-          sudo apt-get install -y git curl build-essential libplist-dev
+          sudo apt-get install -y git curl build-essential libplist-dev dpkg
           git clone https://github.com/theos/theos.git --depth 1 /opt/theos
+          curl -sS https://raw.githubusercontent.com/theos/dm.pl/master/dm.pl -o /opt/theos/bin/dm.pl
+          chmod +x /opt/theos/bin/dm.pl
           echo "THEOS=/opt/theos" >> $GITHUB_ENV
 
       - name: Build Tweak Package
