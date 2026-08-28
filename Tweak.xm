@@ -14,13 +14,12 @@
 
 %new
 - (void)cc_addBatteryLabel {
-    // 1. 取得按鈕內部的圖標（Glyph）
+    // 1. 取得 Glyph 視圖
     UIImageView *glyph = nil;
     if ([self respondsToSelector:@selector(glyphImageView)]) {
         glyph = [self glyphImageView];
     }
     
-    // 如果找不到 Glyph，遍歷子視圖尋找 UIImageView
     if (!glyph) {
         for (UIView *subview in self.subviews) {
             if ([subview isKindOfClass:[UIImageView class]]) {
@@ -30,17 +29,18 @@
         }
     }
 
-    // 2. 特徵識別：檢查圖標名稱或 AccessibilityIdentifier 是不是電池（LowPower / Battery）
+    // 2. 特徵識別（判定是不是低電量模組）
     BOOL isBatteryModule = NO;
+    
+    // 途徑 A：檢查圖片 Accessibility 標籤
     if (glyph && glyph.image) {
         NSString *imageName = glyph.image.accessibilityIdentifier ?: @"";
-        // 系統低電量圖紙通常包含 battery, lowpower 或 battery.controlcenter
         if ([imageName.lowercaseString containsString:@"battery"] || [imageName.lowercaseString containsString:@"lowpower"]) {
             isBatteryModule = YES;
         }
     }
 
-    // 備用識別：如果無法讀取圖片名稱，檢查父層 Bundle/ViewController 類名
+    // 途徑 B：沿著 響應鏈 (NextResponder) 向上找類名
     if (!isBatteryModule) {
         UIResponder *responder = self.nextResponder;
         while (responder) {
@@ -53,10 +53,10 @@
         }
     }
 
-    // 如果不是低電量按鈕，直接退出（不干擾手電筒等其他按鈕）
+    // 非低電量模組直接跳過
     if (!isBatteryModule) return;
 
-    // 3. 開始繪製電量百分比 Label
+    // 3. 繪製 Label
     CGFloat width = self.bounds.size.width;
     CGFloat height = self.bounds.size.height;
     if (width <= 0 || height <= 0) return;
@@ -75,8 +75,8 @@
         [self addSubview:label];
     }
 
-    // 強制定位在按鈕圓形的底部偏中位置
-    label.frame = CGRectMake(0, height - 16, width, 12);
+    // 絕對定位放置在圓形底部
+    label.frame = CGRectMake(0, height - 15, width, 12);
 
     if (percent > 0) {
         label.text = [NSString stringWithFormat:@"%d%%", percent];
@@ -87,7 +87,6 @@
     BOOL isLPMEnabled = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
     label.textColor = isLPMEnabled ? [UIColor blackColor] : [UIColor whiteColor];
 
-    // 確保浮在最頂層
     [self bringSubviewToFront:label];
 }
 
