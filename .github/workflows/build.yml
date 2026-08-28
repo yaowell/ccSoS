@@ -1,4 +1,4 @@
-name: Build SimpleCowbell Rootless Tweak
+name: Build SimpleCowbell Rootless
 on:
   push:
     branches: [ main ]
@@ -6,21 +6,20 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu‑latest
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup‑Theos official action
-        uses: theos/setup-theos@v1
+      - name: Setup Theos
+        uses: iosrouter/theos-action@master
 
-      - name: Build & package rootless
+      - name: Build rootless deb
         run: |
           make clean
-          make package ROOTLESS=1
+          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1
 
-      - name: Upload deb
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           path: packages/*.deb
-          name: SimpleCowbell-deb
+          name: SimpleCowbell‑deb
