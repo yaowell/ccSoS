@@ -12,16 +12,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Dependencies
+      - name: Setup Theos, SDKs & Toolchain
         run: |
-          brew install ldid
-
-      - name: Setup Theos & SDKs
-        run: |
+          # 1. 克隆 Theos 本體
           git clone --recursive https://github.com/theos/theos.git ~/theos
+          
+          # 2. 下載完整 SDK 庫
           rm -rf ~/theos/sdks
           git clone https://github.com/theos/sdks.git ~/theos/sdks
+          
+          # 3. 下載並安裝 Theos 官方 ldid 簽名工具
+          curl -LO https://github.com/theos/ldid/releases/latest/download/ldid_macosx_x86_64
+          chmod +x ldid_macosx_x86_64
+          mv ldid_macosx_x86_64 ~/theos/bin/ldid
+          
+          # 4. 寫入環境變數
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+          echo "$HOME/theos/bin" >> $GITHUB_PATH
 
       - name: Build Tweak Package
         run: |
