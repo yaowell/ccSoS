@@ -1,65 +1,35 @@
 #import <UIKit/UIKit.h>
-#import <objc/runtime.h>
 
-@interface CCUIBatteryStatusItemView : UIView
-@property (nonatomic, strong) UILabel *cbPercentLabel;
-- (void)cb_updateText;
+@interface CCUIControlCenterViewController : UIViewController
+- (void)printSubviews:(UIView *)v depth:(int)d;
 @end
 
-%hook CCUIBatteryStatusItemView
+%hook CCUIControlCenterViewController
 
-%property (nonatomic, strong) UILabel *cbPercentLabel;
-
-- (void)didMoveToSuperview {
+- (void)viewDidAppear:(BOOL)animated {
     %orig;
-    
-    // 必須開啟系統電量監測，否則 batteryLevel 為 -1
-    [UIDevice currentDevice].batteryMonitoringEnabled = YES;
-
-    if (!self.cbPercentLabel) {
-        UILabel *lab = [[UILabel alloc] init];
-        lab.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
-        lab.textColor = [UIColor whiteColor];
-        lab.frame = CGRectMake(-24, 1, 22, 13);
-        lab.textAlignment = NSTextAlignmentRight;
-        
-        self.cbPercentLabel = lab;
-        [self addSubview:lab];
-
-        // 監聽電量變化通知
-        [[NSNotificationCenter defaultCenter] addObserver:self
-                                                 selector:@selector(cb_updateText)
-                                                     name:UIDeviceBatteryLevelDidChangeNotification
-                                                   object:nil];
-    }
-    
-    [self cb_updateText];
-}
-
-- (void)layoutSubviews {
-    %orig;
-    // 移除 [self cb_updateText] 避免 layoutSubviews 陷入死迴圈崩潰！
-    // 僅在 Frame 改變時調整 Label 位置（如有需要）
-    if (self.cbPercentLabel) {
-        [self bringSubviewToFront:self.cbPercentLabel];
-    }
+    NSLog(@"[DebugTweak] ===== 【控制中心視圖樹開始打印】 =====");
+    [self printSubviews:self.view depth:0];
+    NSLog(@"[DebugTweak] ===== 【打印結束】 =====");
 }
 
 %new
-- (void)cb_updateText {
-    float level = [UIDevice currentDevice].batteryLevel;
+- (void)printSubviews:(UIView *)v depth:(int)d {
+    NSMutableString *pad = [NSMutableString string];
+    for (int i = 0; i < d; i++) {
+        [pad appendString:@"  "];
+    }
     
-    // 處理無效電量情況
-    if (level < 0) {
-        self.cbPercentLabel.text = @"100%";
-    } else {
-        int percent = (int)(level * 100);
-        self.cbPercentLabel.text = [NSString stringWithFormat:@"%d%%", percent];
+    // 輸出當前 View 的類名
+    NSLog(@"[DebugTweak] %@%@", pad, NSStringFromClass([v class]));
+    
+    for (UIView *sv in v.subviews) {
+        [self printSubviews:sv depth:d + 1];
     }
 }
 
 %end
 
 %ctor {
-    NSLog(@"[SimpleCowbell] Loaded successfully into CCUIBatteryStatusItemView!");
+    NSLog(@"[DebugTweak] SpringBoard injected OK");
 }
