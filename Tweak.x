@@ -14,7 +14,7 @@
 - (void)layoutSubviews {
     %orig;
 
-    // 1. 精确过滤：如果不是低电量模块，确保 Label 隐藏或移除，并直接 return
+    // 严谨校验：非低电量模块直接隐藏 Label 并返回
     if (![self cb_isLowPowerModule]) {
         if (self.cbPercentLabel) {
             self.cbPercentLabel.hidden = YES;
@@ -27,18 +27,18 @@
 
     if (width <= 0 || height <= 0 || width > 100 || height > 100) return;
 
-    // 2. 将内部图标向上平移 6pt
+    // 1. 图标向上平移 6pt
     for (UIView *subview in self.subviews) {
         if (subview != self.cbPercentLabel) {
             subview.transform = CGAffineTransformMakeTranslation(0, -6);
         }
     }
 
-    // 3. 创建/显示底部的电量 Label
+    // 2. 初始化/显示电量 Label
     if (!self.cbPercentLabel) {
         UILabel *lab = [[UILabel alloc] initWithFrame:CGRectMake(0, height - 16, width, 12)];
         lab.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
-        lab.textColor = [UIColor whiteColor]; // 改回经典的白色
+        lab.textColor = [UIColor whiteColor];
         lab.textAlignment = NSTextAlignmentCenter;
         lab.userInteractionEnabled = NO;
 
@@ -61,24 +61,37 @@
 
 %new
 - (BOOL)cb_isLowPowerModule {
-    // 检查响应者链或子视图类型中是否包含 LowPower 关键字
-    UIResponder *responder = self;
-    while (responder) {
-        NSString *clsName = NSStringFromClass([responder class]);
-        if ([clsName containsString:@"LowPower"] || [clsName containsString:@"Battery"]) {
-            return YES;
-        }
-        responder = [responder nextResponder];
+    // A. 检查 accessibilityIdentifier 或 accessibilityLabel
+    if ([self.accessibilityIdentifier containsString:@"low-power"] || 
+        [self.accessibilityLabel containsString:@"低电量"] || 
+        [self.accessibilityLabel containsString:@"Low Power"]) {
+        return YES;
     }
 
-    // 深度检查内部 View 的类名
-    for (UIView *sub in self.subviews) {
-        NSString *subCls = NSStringFromClass([sub class]);
-        if ([subCls containsString:@"LowPower"] || [subCls containsString:@"Battery"]) {
+    // B. 递归检索子 View 链条与描述信息
+    return [self cb_checkViewRecursive:self];
+}
+
+%new
+- (BOOL)cb_checkViewRecursive:(UIView *)view {
+    if (!view) return NO;
+
+    NSString *className = NSStringFromClass([view class]);
+    NSString *description = [view description];
+
+    if ([className containsString:@"LowPower"] || 
+        [className containsString:@"Battery"] || 
+        [description containsString:@"low-power"] ||
+        [description containsString:@"LowPower"]) {
+        return YES;
+    }
+
+    for (UIView *subview in view.subviews) {
+        if (subview == self.cbPercentLabel) continue;
+        if ([self cb_checkViewRecursive:subview]) {
             return YES;
         }
     }
-
     return NO;
 }
 
