@@ -1,52 +1,64 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
-@interface CCUIBatteryModule : UIView
-- (void)cb_updateBatteryText;
-- (void)cb_walkAndSetPercent:(UIView *)root text:(NSString *)text;
+@interface CCUILowPowerModeModule : NSObject
 @end
 
-%hook CCUIBatteryModule
+@interface CCUIContentModuleContentViewController : UIViewController
+- (void)cb_updateLabelText;
+@end
 
-- (void)didMoveToSuperview {
-    %orig;
-    [UIDevice currentDevice].batteryMonitoringEnabled = YES;
-    
-    // 監聽電量變化
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(cb_updateBatteryText)
-                                                 name:UIDeviceBatteryLevelDidChangeNotification
-                                               object:nil];
-    [self cb_updateBatteryText];
+// Hook 低電量模組對應的 View Controller 或 View
+%hook CCUILowPowerModeModule
+
+- (UIViewController *)contentViewController {
+    UIViewController *vc = %orig;
+    if (vc) {
+        [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+        // 監聽電量變化
+        [[NSNotificationCenter defaultCenter] addObserver:vc
+                                                 selector:@selector(cb_updateLabelText)
+                                                     name:UIDeviceBatteryLevelDidChangeNotification
+                                                   object:nil];
+    }
+    return vc;
 }
 
-- (void)layoutSubviews {
+%end
+
+// 針對控制中心模組視圖進行文字替換
+%hook UIViewController
+
+- (void)viewWillAppear:(BOOL)animated {
     %orig;
-    [self cb_updateBatteryText];
+    NSString *clsName = NSStringFromClass([self class]);
+    if ([clsName containsString:@"LowPower"] || [clsName containsString:@"CCUI"]) {
+        [self cb_updateLabelText];
+    }
 }
 
 %new
-- (void)cb_updateBatteryText {
+- (void)cb_updateLabelText {
     [UIDevice currentDevice].batteryMonitoringEnabled = YES;
     float level = [UIDevice currentDevice].batteryLevel;
-    
-    int p = (level >= 0) ? (int)round(level * 100.0f) : 100;
-    NSString *newText = [NSString stringWithFormat:@"%d%%", p];
-    
-    [self cb_walkAndSetPercent:self text:newText];
+    int percent = (level >= 0) ? (int)round(level * 100.0f) : 100;
+    NSString *percentStr = [NSString stringWithFormat:@"%d%%", percent];
+
+    // 遞歸尋找視圖內的 UILabel 並替換文字
+    [self cb_findAndSetLabelText:self.view text:percentStr];
 }
 
 %new
-- (void)cb_walkAndSetPercent:(UIView *)root text:(NSString *)text {
-    for (UIView *v in root.subviews) {
-        if ([v isKindOfClass:[UILabel class]]) {
-            UILabel *lab = (UILabel *)v;
-            // 核心防死迴圈：只有當文字真的改變時才賦值，防止觸發 layoutSubviews 死迴圈
-            if (![lab.text isEqualToString:text]) {
-                lab.text = text;
+- (void)cb_findAndSetLabelText:(UIView *)parent text:(NSString *)text {
+    for (UIView *subview in parent.subviews) {
+        if ([subview isKindOfClass:[UILabel class]]) {
+            UILabel *label = (UILabel *)subview;
+            // 防死迴圈：只有當文字不一致時才賦值
+            if (![label.text isEqualToString:text]) {
+                label.text = text;
             }
-        } else if (v.subviews.count > 0) {
-            [self cb_walkAndSetPercent:v text:text];
+        } else if (subview.subviews.count > 0) {
+            [self cb_findAndSetLabelText:subview text:text];
         }
     }
 }
@@ -54,5 +66,5 @@
 %end
 
 %ctor {
-    NSLog(@"[SimpleCowbell] Hook CCUIBatteryModule loaded");
+    NSLog(@"[SimpleCowbell] Hook CCUILowPowerModeModule loaded successfully!");
 }
