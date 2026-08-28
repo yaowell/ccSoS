@@ -15,9 +15,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y git curl build-essential libplist-dev
-          git clone https://github.com/theos/theos.git --depth 1 /opt/theos
-          cd /opt/theos
-          git checkout rootless
+          # 重点：使用sbingner的rootless专用theos fork，不再用官方theos的rootless分支（已删除）
+          git clone https://github.com/sbingner/theos.git --depth 1 /opt/theos
           echo "THEOS=/opt/theos" >> $GITHUB_ENV
 
       - name: Compile tweak ROOTLESS=1
