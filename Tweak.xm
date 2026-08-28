@@ -1,6 +1,5 @@
 #import <UIKit/UIKit.h>
 
-// 显式声明 IOKit 底层 C 函数与常量，避免头文件 module 冲突
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -16,7 +15,6 @@ extern "C" {
 }
 #endif
 
-// 获取真实电池百分比
 static int getPreciseBatteryPercent(void) {
     io_service_t service = IOServiceGetMatchingService(0, IOServiceMatching("AppleSmartBattery"));
     if (!service) return 0;
@@ -53,6 +51,7 @@ static int getPreciseBatteryPercent(void) {
 - (void)viewDidLoad {
     %orig;
     
+    // 註冊通知
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(updateCowbellLabel)
                                                  name:UIDeviceBatteryLevelDidChangeNotification
@@ -63,22 +62,32 @@ static int getPreciseBatteryPercent(void) {
                                                object:nil];
 }
 
-- (void)viewDidLayoutSubviews {
+- (void)viewWillLayoutSubviews {
     %orig;
     [self updateCowbellLabel];
 }
 
 %new
 - (void)updateCowbellLabel {
-    int percent = getPreciseBatteryPercent();
     UIView *parentView = self.view;
     if (!parentView) return;
+
+    int percent = getPreciseBatteryPercent();
+    
+    // 如果讀取失敗，使用系統備用電量 API
+    if (percent == 0) {
+        [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+        float level = [UIDevice currentDevice].batteryLevel;
+        if (level >= 0) {
+            percent = (int)round(level * 100.0);
+        }
+    }
 
     UILabel *label = (UILabel *)[parentView viewWithTag:88888];
     if (!label) {
         label = [[UILabel alloc] init];
         label.tag = 88888;
-        label.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
+        label.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
         label.textAlignment = NSTextAlignmentCenter;
         label.userInteractionEnabled = NO;
         label.translatesAutoresizingMaskIntoConstraints = NO;
@@ -86,7 +95,7 @@ static int getPreciseBatteryPercent(void) {
 
         [NSLayoutConstraint activateConstraints:@[
             [label.centerXAnchor constraintEqualToAnchor:parentView.centerXAnchor],
-            [label.bottomAnchor constraintEqualToAnchor:parentView.bottomAnchor constant:-4]
+            [label.centerYAnchor constraintEqualToAnchor:parentView.centerYAnchor constant:12]
         ]];
     }
 
@@ -94,7 +103,7 @@ static int getPreciseBatteryPercent(void) {
 
     BOOL isLowPower = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
     if (isLowPower) {
-        label.textColor = [UIColor colorWithRed:0.2 green:0.2 blue:0.2 alpha:0.9];
+        label.textColor = [UIColor blackColor];
     } else {
         label.textColor = [UIColor whiteColor];
     }
