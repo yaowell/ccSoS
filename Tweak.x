@@ -1,10 +1,12 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
+// 1. 必须在 interface 中完整声明自定义的方法，否则编译器无法识别 selector
 @interface CCUIContentModuleContainerView : UIView
 @property (nonatomic, strong) UILabel *cbPercentLabel;
 - (void)cb_updatePercentText;
 - (BOOL)cb_isLowPowerModule;
+- (BOOL)cb_checkViewRecursive:(UIView *)view; // 👈 补上了这行声明，解决编译报错
 @end
 
 %hook CCUIContentModuleContainerView
@@ -27,14 +29,14 @@
 
     if (width <= 0 || height <= 0 || width > 100 || height > 100) return;
 
-    // 1. 图标向上平移 6pt
+    // 图标向上平移 6pt
     for (UIView *subview in self.subviews) {
         if (subview != self.cbPercentLabel) {
             subview.transform = CGAffineTransformMakeTranslation(0, -6);
         }
     }
 
-    // 2. 初始化/显示电量 Label
+    // 初始化/显示电量 Label
     if (!self.cbPercentLabel) {
         UILabel *lab = [[UILabel alloc] initWithFrame:CGRectMake(0, height - 16, width, 12)];
         lab.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
@@ -61,14 +63,14 @@
 
 %new
 - (BOOL)cb_isLowPowerModule {
-    // A. 检查 accessibilityIdentifier 或 accessibilityLabel
+    // 检查 accessibilityIdentifier 或 accessibilityLabel
     if ([self.accessibilityIdentifier containsString:@"low-power"] || 
         [self.accessibilityLabel containsString:@"低电量"] || 
         [self.accessibilityLabel containsString:@"Low Power"]) {
         return YES;
     }
 
-    // B. 递归检索子 View 链条与描述信息
+    // 递归检索子 View 链条与描述信息
     return [self cb_checkViewRecursive:self];
 }
 
