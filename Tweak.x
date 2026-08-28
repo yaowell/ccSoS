@@ -6,7 +6,6 @@
 @property (nonatomic, strong) UILabel *cbPercentLabel;
 - (void)cb_updatePercentText;
 - (BOOL)cb_isLowPowerModule;
-- (UIImageView *)cb_findImageViewInView:(UIView *)view;
 @end
 
 %hook CCUIContentModuleContainerView
@@ -16,6 +15,7 @@
 - (void)layoutSubviews {
     %orig;
 
+    // 1. 非低电量模块直接隐藏并返回
     if (![self cb_isLowPowerModule]) {
         if (self.cbPercentLabel) {
             self.cbPercentLabel.hidden = YES;
@@ -28,14 +28,16 @@
 
     if (width <= 0 || height <= 0 || width > 100 || height > 100) return;
 
+    // 2. 修复重影问题：对原生图标控件进行整体微小上移 (-3 像素)，给底部百分比留出位置，绝不去改动图标 Image 对象
     for (UIView *subview in self.subviews) {
         if (subview != self.cbPercentLabel) {
-            subview.transform = CGAffineTransformIdentity;
+            subview.transform = CGAffineTransformMakeTranslation(0, -3);
         }
     }
 
+    // 3. 完美字号 9.5pt Medium
     if (!self.cbPercentLabel) {
-        UILabel *lab = [[UILabel alloc] initWithFrame:CGRectMake(0, height - 22, width, 12)];
+        UILabel *lab = [[UILabel alloc] initWithFrame:CGRectMake(0, height - 20, width, 12)];
         lab.font = [UIFont systemFontOfSize:9.5 weight:UIFontWeightMedium];
         lab.textAlignment = NSTextAlignmentCenter;
         lab.userInteractionEnabled = NO;
@@ -45,6 +47,7 @@
 
         [UIDevice currentDevice].batteryMonitoringEnabled = YES;
         
+        // 监听电量与低电量开关状态
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(cb_updatePercentText)
                                                      name:UIDeviceBatteryLevelDidChangeNotification
@@ -56,7 +59,7 @@
                                                    object:nil];
     } else {
         self.cbPercentLabel.hidden = NO;
-        self.cbPercentLabel.frame = CGRectMake(0, height - 22, width, 12);
+        self.cbPercentLabel.frame = CGRectMake(0, height - 20, width, 12);
     }
 
     [self bringSubviewToFront:self.cbPercentLabel];
@@ -86,51 +89,21 @@
 }
 
 %new
-- (UIImageView *)cb_findImageViewInView:(UIView *)view {
-    if ([view isKindOfClass:[UIImageView class]]) {
-        return (UIImageView *)view;
-    }
-    for (UIView *subview in view.subviews) {
-        UIImageView *imgView = [self cb_findImageViewInView:subview];
-        if (imgView) return imgView;
-    }
-    return nil;
-}
-
-%new
 - (void)cb_updatePercentText {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (!self.cbPercentLabel) return;
 
-        // 1. 获取当前电量百分比
+        // 1. 获取并刷新电量百分比
         float level = [UIDevice currentDevice].batteryLevel;
         int percent = (level >= 0) ? (int)round(level * 100.0f) : 100;
         self.cbPercentLabel.text = [NSString stringWithFormat:@"%d%%", percent];
 
-        // 2. 状态切换颜色
+        // 2. 状态切换：开启低电量模式时文字变黑（适应黄色背景），关闭时变白
         BOOL isLowPowerMode = [NSProcessInfo processInfo].isLowPowerModeEnabled;
-        self.cbPercentLabel.textColor = isLowPowerMode ? [UIColor blackColor] : [UIColor whiteColor];
-
-        // 3. 动态更换 SF Symbol 电池图标
-        UIImageView *iconImageView = [self cb_findImageViewInView:self];
-        if (iconImageView) {
-            NSString *symbolName = @"battery.100";
-            if (percent <= 15) {
-                symbolName = @"battery.0";
-            } else if (percent <= 35) {
-                symbolName = @"battery.25";
-            } else if (percent <= 65) {
-                symbolName = @"battery.50";
-            } else if (percent <= 85) {
-                symbolName = @"battery.75";
-            } else {
-                symbolName = @"battery.100";
-            }
-
-            UIImage *newImage = [UIImage systemImageNamed:symbolName];
-            if (newImage && iconImageView.image != newImage) {
-                iconImageView.image = newImage;
-            }
+        if (isLowPowerMode) {
+            self.cbPercentLabel.textColor = [UIColor blackColor];
+        } else {
+            self.cbPercentLabel.textColor = [UIColor whiteColor];
         }
     });
 }
