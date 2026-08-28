@@ -1,24 +1,38 @@
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h>
 
-UIViewController* getTopVC(void) {
-    UIWindow *window = nil;
-    for(UIWindow *w in [UIApplication sharedApplication].connectedScenes) {
-        if([w isKindOfClass:[UIWindowScene class]]) {
-            UIWindowScene *ws = (UIWindowScene*)w;
-            for(UIWindow *win in ws.windows) {
-                if(win.isKeyWindow) window = win;
-            }
-        }
+@interface UIStatusBarBatteryItemView : UIView
+@property (nonatomic, strong) UILabel *cbPercentLabel;
+- (void)cb_updateText;
+@end
+
+%hook UIStatusBarBatteryItemView
+
+%property (nonatomic, strong) UILabel *cbPercentLabel;
+
+- (void)didMoveToSuperview {
+    %orig;
+    if(!self.cbPercentLabel){
+        UILabel *lab = [[UILabel alloc] init];
+        lab.font = [UIFont systemFontOfSize:10 weight:UIFontWeightSemibold];
+        lab.textColor = [UIColor whiteColor];
+        lab.frame = CGRectMake(-22, 0, 20, 12);
+        lab.textAlignment = NSTextAlignmentRight;
+        self.cbPercentLabel = lab;
+        [self addSubview:lab];
     }
-    UIViewController *vc = window.rootViewController;
-    while(vc.presentedViewController) vc = vc.presentedViewController;
-    return vc;
+    [self cb_updateText];
 }
 
-%ctor {
-    dispatch_async(dispatch_get_main_queue(),^{
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"✅注入成功" message:@"SimpleCowbell已加载" preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-        [getTopVC() presentViewController:alert animated:YES completion:nil];
-    });
+- (void)cb_updateText {
+    float level = [UIDevice currentDevice].batteryLevel;
+    int percent = (int)(level*100);
+    self.cbPercentLabel.text = [NSString stringWithFormat:@"%d%%",percent];
 }
+
+- (void)layoutSubviews {
+    %orig;
+    [self cb_updateText];
+}
+
+%end
