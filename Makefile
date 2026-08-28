@@ -1,13 +1,14 @@
-THEOS_PACKAGE_SCHEME = rootless
-TARGET := iphone:clang:latest:15.0
-INSTALL_TARGET_PROCESSES = SpringBoard ControlCenter
+ARCHS = arm64e
+TARGET = iphone:clang:16.5:16.0
+INSTALL_TARGET_PROCESSES = SpringBoard
+ROOTLESS = 1
 
 include $(THEOS)/makefiles/common.mk
 
-TWEAK_NAME = cowbellbattery
+TWEAK_NAME = SimpleCowbell
 
-cowbellbattery_FILES = Tweak.xm
-cowbellbattery_CFLAGS = -fobjc-arc
-cowbellbattery_FRAMEWORKS = UIKit
+SimpleCowbell_FILES = Tweak.x
+SimpleCowbell_CFLAGS = -fobjc-arc -Wno-deprecated-declarations
+SimpleCowbell_FRAMEWORKS = UIKit Foundation
 
 include $(THEOS_MAKE_PATH)/tweak.mk
