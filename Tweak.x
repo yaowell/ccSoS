@@ -28,17 +28,17 @@
 
     if (width <= 0 || height <= 0 || width > 100 || height > 100) return;
 
-    // 2. 电池图标完全保持原生位置，不动它
+    // 2. 电池图标保持原生位置不动
     for (UIView *subview in self.subviews) {
         if (subview != self.cbPercentLabel) {
             subview.transform = CGAffineTransformIdentity;
         }
     }
 
-    // 3. 只调整百分比 Label 的位置：Y轴改为 height - 22（比之前向上抬高了不少，完美避开底边）
+    // 3. 字号调整为 8.5pt Medium，精致细腻，Y坐标维持 height - 22
     if (!self.cbPercentLabel) {
         UILabel *lab = [[UILabel alloc] initWithFrame:CGRectMake(0, height - 22, width, 12)];
-        lab.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
+        lab.font = [UIFont systemFontOfSize:8.5 weight:UIFontWeightMedium];
         lab.textAlignment = NSTextAlignmentCenter;
         lab.userInteractionEnabled = NO;
 
@@ -98,7 +98,7 @@
         int percent = (level >= 0) ? (int)round(level * 100.0f) : 100;
         self.cbPercentLabel.text = [NSString stringWithFormat:@"%d%%", percent];
 
-        // 2. 颜色逻辑（保持已调完美的逻辑）
+        // 2. 低电量模式开启时文字变黑，关闭时变白
         BOOL isLowPowerMode = [NSProcessInfo processInfo].isLowPowerModeEnabled;
         if (isLowPowerMode) {
             self.cbPercentLabel.textColor = [UIColor blackColor];
