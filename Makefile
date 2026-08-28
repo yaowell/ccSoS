@@ -10,8 +10,8 @@ $(TWEAK_NAME)_CFLAGS = -fobjc-arc
 $(TWEAK_NAME)_FRAMEWORKS = UIKit CoreGraphics
 $(TWEAK_NAME)_PRIVATE_FRAMEWORKS = ControlCenterUIKit ControlCenterUI
 
-# 針對 RootHide / Dopamine 無根環境的旗標設定
-$(TWEAK_NAME)_LDFLAGS += -Xtheos -Wl,-segalign,0x4000
+# 修正：移除 -Xtheos，保留 64 位页面对齐参数
+$(TWEAK_NAME)_LDFLAGS += -Wl,-segalign,0x4000
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 
