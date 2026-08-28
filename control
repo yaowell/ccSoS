@@ -1,9 +1,9 @@
-Package: com.yaowell.cowbelllite
-Name: CowbellLite
+Package: com.yaowell.cowbellX
+Name: CowbellX
 Depends: mobilesubstrate
 Version: 1.0.0
 Architecture: iphoneos-arm
-Description: 在控制中心低电量模块显示电量百分比，支持智能反色。致敬 LaughingQuoll。
+Description: 在控制中心低电量模块显示电量百分比 致敬 LaughingQuoll。
 Maintainer: yaowell
 Author: yaowell
 Section: Tweaks
