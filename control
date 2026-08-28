@@ -1,9 +1,9 @@
 Package: com.yourname.simplecowbell
 Name: SimpleCowbell
-Depends: mobilesubstrate (>= 0.9.5000), preferenceloader
+Depends: mobilesubstrate (>= 0.9.5000)
 Version: 0.0.1
-Architecture: iphoneos-arm64
-Description: CC Low Power Mode Percent
+Architecture: iphoneos-arm64e
+Description: CC Low Power Mode Percent Tweak
 Maintainer: YourName
 Author: YourName
 Section: Tweaks
