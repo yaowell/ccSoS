@@ -35,10 +35,10 @@
         }
     }
 
-    // 3. 字号调整为 8.5pt Medium，精致细腻，Y坐标维持 height - 22
+    // 3. 字号调整为 9.5pt Medium，清晰度与精致感最佳，Y坐标维持 height - 22
     if (!self.cbPercentLabel) {
         UILabel *lab = [[UILabel alloc] initWithFrame:CGRectMake(0, height - 22, width, 12)];
-        lab.font = [UIFont systemFontOfSize:8.5 weight:UIFontWeightMedium];
+        lab.font = [UIFont systemFontOfSize:9.5 weight:UIFontWeightMedium];
         lab.textAlignment = NSTextAlignmentCenter;
         lab.userInteractionEnabled = NO;
 
