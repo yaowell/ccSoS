@@ -1,21 +1,21 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
+// 1. 明确声明 CCUIContentModuleContentView 继承自 UIView
+@interface CCUIContentModuleContentView : UIView
+@property (nonatomic, strong) UILabel *cbPercentLabel;
+- (void)cb_updateText;
+@end
+
 @interface CCUILowPowerModeModuleViewController : UIViewController
 @end
 
-// 声明全局电量百分比 Label 动态属性
-@interface UIView (Cowbell)
-@property (nonatomic, strong) UILabel *cbPercentLabel;
-@end
-
+// 2. 挂载动态属性到 UIView 容器
 %hook UIView
-
 %property (nonatomic, strong) UILabel *cbPercentLabel;
-
 %end
 
-// 1. Hook 低电量模块的 Controller，确保开启电量监听
+// 3. 监听低电量 Controller
 %hook CCUILowPowerModeModuleViewController
 
 - (void)viewDidLoad {
@@ -30,13 +30,13 @@
 
 %end
 
-// 2. 直接 Hook 控制中心模块 Content View 的 layoutSubviews
+// 4. Hook 模块 ContentView 进行 UI 上图下文排版
 %hook CCUIContentModuleContentView
 
 - (void)layoutSubviews {
     %orig;
     
-    // 确认当前 View 是否属于低电量模块
+    // 判断 Responder 链，仅拦截低电量模块
     UIResponder *responder = self;
     while (responder && ![responder isKindOfClass:[UIViewController class]]) {
         responder = [responder nextResponder];
@@ -51,17 +51,17 @@
 
     if (width <= 0 || height <= 0) return;
 
-    // A. 将原生的 Icon/Glyph 视图整体向上平移，并关闭 translatesAutoresizingMaskIntoConstraints
+    // A. 向上平移图标视图
     for (UIView *subview in self.subviews) {
         if (subview != self.cbPercentLabel) {
-            subview.translatesAutoresizingMaskIntoConstraints = YES; // 允许手动改 Frame
+            subview.translatesAutoresizingMaskIntoConstraints = YES;
             CGRect frame = subview.frame;
-            frame.origin.y = (height - frame.size.height) / 2 - 7; // 向上偏移 7pt
+            frame.origin.y = (height - frame.size.height) / 2 - 7;
             subview.frame = frame;
         }
     }
 
-    // B. 初始化底部百分比 Label
+    // B. 创建底部百分比 Label
     if (!self.cbPercentLabel) {
         UILabel *lab = [[UILabel alloc] init];
         lab.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
@@ -72,14 +72,13 @@
         self.cbPercentLabel = lab;
         [self addSubview:lab];
 
-        // 注册电量变化通知
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(cb_updateText)
                                                      name:UIDeviceBatteryLevelDidChangeNotification
                                                    object:nil];
     }
 
-    // C. 放置 Label 在最底部
+    // C. 放置 Label 在最底端
     self.cbPercentLabel.frame = CGRectMake(0, height - 16, width, 12);
     [self bringSubviewToFront:self.cbPercentLabel];
     
