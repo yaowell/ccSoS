@@ -1,12 +1,11 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
-// 1. 必须在 interface 中完整声明自定义的方法，否则编译器无法识别 selector
 @interface CCUIContentModuleContainerView : UIView
+@property (nonatomic, strong) NSString *moduleIdentifier;
 @property (nonatomic, strong) UILabel *cbPercentLabel;
 - (void)cb_updatePercentText;
 - (BOOL)cb_isLowPowerModule;
-- (BOOL)cb_checkViewRecursive:(UIView *)view; // 👈 补上了这行声明，解决编译报错
 @end
 
 %hook CCUIContentModuleContainerView
@@ -16,7 +15,7 @@
 - (void)layoutSubviews {
     %orig;
 
-    // 严谨校验：非低电量模块直接隐藏 Label 并返回
+    // 1. 如果不是低电量模块，直接隐藏 Label 并返回
     if (![self cb_isLowPowerModule]) {
         if (self.cbPercentLabel) {
             self.cbPercentLabel.hidden = YES;
@@ -29,14 +28,14 @@
 
     if (width <= 0 || height <= 0 || width > 100 || height > 100) return;
 
-    // 图标向上平移 6pt
+    // 2. 将低电量图标向上平移 6pt
     for (UIView *subview in self.subviews) {
         if (subview != self.cbPercentLabel) {
             subview.transform = CGAffineTransformMakeTranslation(0, -6);
         }
     }
 
-    // 初始化/显示电量 Label
+    // 3. 创建/显示底部的白色电量 Label
     if (!self.cbPercentLabel) {
         UILabel *lab = [[UILabel alloc] initWithFrame:CGRectMake(0, height - 16, width, 12)];
         lab.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
@@ -63,37 +62,31 @@
 
 %new
 - (BOOL)cb_isLowPowerModule {
-    // 检查 accessibilityIdentifier 或 accessibilityLabel
+    // A. 优先检查 CCUIContentModuleContainerView 自带的 moduleIdentifier 私有属性
+    if ([self respondsToSelector:@selector(moduleIdentifier)]) {
+        NSString *modID = [self performSelector:@selector(moduleIdentifier)];
+        if ([modID containsString:@"LowPower"] || [modID containsString:@"low-power"] || [modID containsString:@"battery"]) {
+            return YES;
+        }
+    }
+
+    // B. 检查 View 的 responder 链条中的 Controller 类名
+    UIResponder *responder = self;
+    while (responder) {
+        NSString *clsName = NSStringFromClass([responder class]);
+        if ([clsName containsString:@"LowPower"] || [clsName containsString:@"Battery"]) {
+            return YES;
+        }
+        responder = [responder nextResponder];
+    }
+
+    // C. 检查 accessibility 标识
     if ([self.accessibilityIdentifier containsString:@"low-power"] || 
         [self.accessibilityLabel containsString:@"低电量"] || 
         [self.accessibilityLabel containsString:@"Low Power"]) {
         return YES;
     }
 
-    // 递归检索子 View 链条与描述信息
-    return [self cb_checkViewRecursive:self];
-}
-
-%new
-- (BOOL)cb_checkViewRecursive:(UIView *)view {
-    if (!view) return NO;
-
-    NSString *className = NSStringFromClass([view class]);
-    NSString *description = [view description];
-
-    if ([className containsString:@"LowPower"] || 
-        [className containsString:@"Battery"] || 
-        [description containsString:@"low-power"] ||
-        [description containsString:@"LowPower"]) {
-        return YES;
-    }
-
-    for (UIView *subview in view.subviews) {
-        if (subview == self.cbPercentLabel) continue;
-        if ([self cb_checkViewRecursive:subview]) {
-            return YES;
-        }
-    }
     return NO;
 }
 
