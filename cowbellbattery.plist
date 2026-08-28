@@ -4,11 +4,16 @@
 <dict>
 	<key>Filter</key>
 	<dict>
+		<key>Executables</key>
+		<array>
+			<string>SpringBoard</string>
+			<string>ControlCenter</string>
+		</array>
 		<key>Bundles</key>
 		<array>
-			<string>com.apple.controlcenter.LowPowerModule</string>
-			<string>com.apple.ControlCenter</string>
 			<string>com.apple.springboard</string>
+			<string>com.apple.ControlCenter</string>
+			<string>com.apple.controlcenter.LowPowerModule</string>
 		</array>
 	</dict>
 </dict>
