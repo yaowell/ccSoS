@@ -66,7 +66,7 @@
     self.percentLabel.textColor = isLowPower ? [UIColor blackColor] : [UIColor whiteColor];
     self.fillView.backgroundColor = themeColor;
 
-    CGFloat iconScale = h / 64.0f;
+    CGFloat iconScale = h / 72.0f;
     CGFloat totalW = 32.0f * iconScale;
     CGFloat iconH = 14.0f * iconScale;
 
@@ -90,7 +90,7 @@
     CGFloat w = self.bounds.size.width, h = self.bounds.size.height;
     if (w <= 0 || h <= 0) return;
 
-    CGFloat iconScale = h / 64.0f;
+    CGFloat iconScale = h / 72.0f;
     CGFloat totalW = 32.0f * iconScale;
     CGFloat iconH = 14.0f * iconScale;
 
