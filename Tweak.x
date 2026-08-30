@@ -34,11 +34,9 @@
     [super didMoveToWindow];
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     if (self.window) {
-        // 挂到屏幕：注册通知
         [nc addObserver:self selector:@selector(updateBatteryData) name:UIDeviceBatteryLevelDidChangeNotification object:nil];
         [nc addObserver:self selector:@selector(updateBatteryData) name:NSProcessInfoPowerStateDidChangeNotification object:nil];
     } else {
-        // 离开屏幕：立刻移除通知，不再接收电量事件
         [nc removeObserver:self];
     }
 }
@@ -48,8 +46,7 @@
 }
 
 - (void)updateBatteryData {
-    // 不在屏幕直接放弃重绘
-    if(!self.window) return;
+    if (!self.window) return;
 
     dispatch_async(dispatch_get_main_queue(), ^{
         if (![UIDevice currentDevice].isBatteryMonitoringEnabled) {
