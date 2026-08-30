@@ -11,6 +11,7 @@ static char kIsLowPowerKey;
 @property (nonatomic, strong) UILabel *percentLabel;
 @property (nonatomic, assign) int cachedPercent;
 @property (nonatomic, assign) BOOL cachedLowPowerState;
+@property (nonatomic, assign) BOOL needFreshData;
 - (void)updateColorsOnly;
 @end
 
@@ -23,6 +24,7 @@ static char kIsLowPowerKey;
         self.opaque = NO;
         self.cachedPercent = -1;
         self.cachedLowPowerState = NO;
+        self.needFreshData = YES;
         
         _percentLabel = [[UILabel alloc] init];
         _percentLabel.textAlignment = NSTextAlignmentCenter;
@@ -35,14 +37,7 @@ static char kIsLowPowerKey;
     [super didMoveToWindow];
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     if (self.window) {
-        [UIDevice currentDevice].batteryMonitoringEnabled = YES;
-        float level = [UIDevice currentDevice].batteryLevel;
-        if(level < 0) level = 1.0f;
-        self.cachedPercent = (int)round(level * 100);
-        self.cachedLowPowerState = [NSProcessInfo processInfo].isLowPowerModeEnabled;
-        self.percentLabel.text = [NSString stringWithFormat:@"%d%%",self.cachedPercent];
-        self.percentLabel.textColor = self.cachedLowPowerState ? [UIColor blackColor] : [UIColor whiteColor];
-        
+        self.needFreshData = YES;
         [nc addObserver:self selector:@selector(updateColorsOnly) name:NSProcessInfoPowerStateDidChangeNotification object:nil];
     } else {
         [nc removeObserver:self name:NSProcessInfoPowerStateDidChangeNotification object:nil];
@@ -58,6 +53,16 @@ static char kIsLowPowerKey;
 
 - (void)layoutSubviews {
     [super layoutSubviews];
+    
+    if(self.needFreshData){
+        [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+        float level = [UIDevice currentDevice].batteryLevel;
+        if(level < 0) level = 1.0f;
+        self.cachedPercent = (int)round(level * 100);
+        self.percentLabel.text = [NSString stringWithFormat:@"%d%%",self.cachedPercent];
+        self.needFreshData = NO;
+    }
+    
     BOOL currentState = [NSProcessInfo processInfo].isLowPowerModeEnabled;
     if(self.cachedLowPowerState != currentState){
         self.cachedLowPowerState = currentState;
