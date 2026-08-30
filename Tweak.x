@@ -9,6 +9,7 @@ static char kIsLowPowerKey;
 
 @interface CBCustomBatteryView : UIView
 @property (nonatomic, strong) UILabel *percentLabel;
+- (void)updateColorOnly;
 @end
 
 @implementation CBCustomBatteryView
@@ -27,9 +28,17 @@ static char kIsLowPowerKey;
     return self;
 }
 
+- (void)updateColorOnly {
+    // 只更新文字颜色，**不去读取电量数值**，电量依旧只在didMoveToWindow刷新
+    BOOL lowPowerOn = [NSProcessInfo processInfo].isLowPowerModeEnabled;
+    self.percentLabel.textColor = lowPowerOn ? [UIColor blackColor] : [UIColor whiteColor];
+}
+
 - (void)didMoveToWindow {
     [super didMoveToWindow];
+    NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     if(self.window) {
+        // 视图显示：读取一次电量数值
         [UIDevice currentDevice].batteryMonitoringEnabled = YES;
         float level = [UIDevice currentDevice].batteryLevel;
         if(level < 0) level = 1.0f;
@@ -38,6 +47,12 @@ static char kIsLowPowerKey;
         
         self.percentLabel.text = [NSString stringWithFormat:@"%d%%", percent];
         self.percentLabel.textColor = lowPowerOn ? [UIColor blackColor] : [UIColor whiteColor];
+        
+        // 仅监听【低电量开关切换通知】，不监听电量变化！
+        [nc addObserver:self selector:@selector(updateColorOnly) name:NSProcessInfoPowerStateDidChangeNotification object:nil];
+    } else {
+        // 视图离开屏幕，移除通知，避免内存泄漏
+        [nc removeObserver:self name:NSProcessInfoPowerStateDidChangeNotification object:nil];
     }
 }
 
@@ -49,6 +64,10 @@ static char kIsLowPowerKey;
         CGFloat h = self.bounds.size.height;
         self.percentLabel.frame = CGRectMake((w - self.percentLabel.bounds.size.width)/2.0, h * 0.70, self.percentLabel.bounds.size.width, self.percentLabel.bounds.size.height);
     }
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
 @end
