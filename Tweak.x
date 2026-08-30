@@ -66,7 +66,6 @@
     self.percentLabel.textColor = isLowPower ? [UIColor blackColor] : [UIColor whiteColor];
     self.fillView.backgroundColor = themeColor;
 
-    // 基于模块高度h做比例，原版基准：h≈64时 totalW=32 iconH=14
     CGFloat iconScale = h / 64.0f;
     CGFloat totalW = 32.0f * iconScale;
     CGFloat iconH = 14.0f * iconScale;
@@ -91,7 +90,6 @@
     CGFloat w = self.bounds.size.width, h = self.bounds.size.height;
     if (w <= 0 || h <= 0) return;
 
-    // 和layoutSubviews完全一模一样的缩放系数，保证图形和填充条对齐
     CGFloat iconScale = h / 64.0f;
     CGFloat totalW = 32.0f * iconScale;
     CGFloat iconH = 14.0f * iconScale;
