@@ -7,8 +7,6 @@
 		<key>Bundles</key>
 		<array>
 			<string>com.apple.springboard</string>
-			<string>com.apple.ControlCenter</string>
-			<string>com.apple.ControlCenterUI</string>
 		</array>
 	</dict>
 </dict>
