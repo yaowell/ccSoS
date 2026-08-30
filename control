@@ -3,7 +3,7 @@ Name: CowbellX
 Depends: mobilesubstrate
 Version: 1.0.0
 Architecture: iphoneos-arm64
-Description: 控制中心低电量模块显示电量百分比，即装即用。致敬 LaughingQuoll。/ Displays battery percentage in CC Low Power Mode module. Inspired by LaughingQuoll.
+Description:低电量模块电池显示百分比图标 填充条随电量实时变化 Battery percent in Low Power Module Icons and fill bars adjust dynamically with battery leve.
 Maintainer: yaowell
 Author: yaowell
 Section: Tweaks
