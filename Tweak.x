@@ -38,6 +38,10 @@ static char kIsLowPowerKey;
     [super didMoveToWindow];
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     if (self.window) {
+        // 挂载到 Window 时强行确保开启电量监控，防御 Respring 后系统的重置行为
+        if (![UIDevice currentDevice].isBatteryMonitoringEnabled) {
+            [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+        }
         [nc addObserver:self selector:@selector(updateBatteryData) name:UIDeviceBatteryLevelDidChangeNotification object:nil];
         [nc addObserver:self selector:@selector(updateBatteryData) name:UIDeviceBatteryStateDidChangeNotification object:nil];
         [nc addObserver:self selector:@selector(updateBatteryData) name:NSProcessInfoPowerStateDidChangeNotification object:nil];
@@ -55,6 +59,9 @@ static char kIsLowPowerKey;
     if (!self.window) return;
 
     dispatch_async(dispatch_get_main_queue(), ^{
+        if (![UIDevice currentDevice].isBatteryMonitoringEnabled) {
+            [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+        }
         [self setNeedsLayout];
         [self setNeedsDisplay];
     });
@@ -82,6 +89,11 @@ static char kIsLowPowerKey;
     
     CGFloat w = self.bounds.size.width, h = self.bounds.size.height;
     if (w <= 0 || h <= 0) return;
+
+    // 保障机制：如果此时 monitoring 被意外关闭，强行拉起
+    if (![UIDevice currentDevice].isBatteryMonitoringEnabled) {
+        [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+    }
 
     float level = [UIDevice currentDevice].batteryLevel;
     if (level < 0) level = 1.0f;
