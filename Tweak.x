@@ -18,12 +18,10 @@
         self.backgroundColor = [UIColor clearColor];
         
         _fillView = [[UIView alloc] init];
-        _fillView.layer.cornerRadius = 2.0f;
         _fillView.clipsToBounds = YES;
         [self addSubview:_fillView];
 
         _percentLabel = [[UILabel alloc] init];
-        _percentLabel.font = [UIFont systemFontOfSize:9.3f weight:UIFontWeightRegular];
         _percentLabel.textAlignment = NSTextAlignmentCenter;
         [self addSubview:_percentLabel];
 
@@ -66,7 +64,10 @@
     self.percentLabel.textColor = isLowPower ? [UIColor blackColor] : [UIColor whiteColor];
     self.fillView.backgroundColor = themeColor;
 
-    CGFloat iconScale = h / 72.0f;
+    CGFloat scaleH = h / 72.0f;
+    CGFloat scaleW = w / 64.0f;
+    CGFloat iconScale = MIN(scaleH, scaleW);
+
     CGFloat totalW = 32.0f * iconScale;
     CGFloat iconH = 14.0f * iconScale;
 
@@ -81,6 +82,9 @@
     if (currentFillW < minFillW) currentFillW = minFillW;
     
     self.fillView.frame = CGRectMake(iconX + padding, iconY + padding, currentFillW, iconH - padding * 2.0f);
+    self.fillView.layer.cornerRadius = 2.0f * iconScale;
+
+    self.percentLabel.font = [UIFont systemFontOfSize:9.3f * iconScale weight:UIFontWeightRegular];
     self.percentLabel.frame = CGRectMake(0, iconY + iconH + (5.5f * iconScale), w, 11.0f * iconScale);
 }
 
@@ -90,7 +94,10 @@
     CGFloat w = self.bounds.size.width, h = self.bounds.size.height;
     if (w <= 0 || h <= 0) return;
 
-    CGFloat iconScale = h / 72.0f;
+    CGFloat scaleH = h / 72.0f;
+    CGFloat scaleW = w / 64.0f;
+    CGFloat iconScale = MIN(scaleH, scaleW);
+
     CGFloat totalW = 32.0f * iconScale;
     CGFloat iconH = 14.0f * iconScale;
 
