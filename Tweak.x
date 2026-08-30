@@ -55,9 +55,6 @@ static char kIsLowPowerKey;
     if (!self.window) return;
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        if (![UIDevice currentDevice].isBatteryMonitoringEnabled) {
-            [UIDevice currentDevice].batteryMonitoringEnabled = YES;
-        }
         [self setNeedsLayout];
         [self setNeedsDisplay];
     });
