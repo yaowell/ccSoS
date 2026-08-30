@@ -12,10 +12,17 @@ static char kIsLowPowerKey;
 @property (nonatomic, strong) UIView *fillView;
 @property (nonatomic, strong) UILabel *percentLabel;
 
+/*
+ * 电量缓存
+ * 每次控制中心重新出现时只捕捉一次
+ */
 @property (nonatomic, assign) float capturedLevel;
 @property (nonatomic, assign) int capturedPercent;
 @property (nonatomic, assign) BOOL hasCapturedBattery;
 
+/*
+ * 低电量模式实时状态
+ */
 @property (nonatomic, assign) BOOL currentLowPowerState;
 
 @end
@@ -47,8 +54,19 @@ static char kIsLowPowerKey;
             NSTextAlignmentCenter;
         [self addSubview:_percentLabel];
 
+        /*
+         * 只开启电池监控。
+         *
+         * 不监听电量变化。
+         */
         [UIDevice currentDevice].batteryMonitoringEnabled = YES;
 
+        /*
+         * 只监听低电量模式。
+         *
+         * 这样点击控制中心低电量模块后，
+         * 颜色仍然可以立即变化。
+         */
         [[NSNotificationCenter defaultCenter]
             addObserver:self
                selector:@selector(lowPowerModeDidChange:)
@@ -66,6 +84,14 @@ static char kIsLowPowerKey;
         removeObserver:self];
 }
 
+
+/*
+ * ============================================================
+ *  捕捉电量
+ *
+ *  每次控制中心打开只执行一次。
+ * ============================================================
+ */
 
 - (void)captureBatteryDataIfNeeded {
 
@@ -87,6 +113,9 @@ static char kIsLowPowerKey;
         level = 1.0f;
     }
 
+    /*
+     * 只在这里读取一次真实电量。
+     */
     self.capturedLevel = level;
 
     self.capturedPercent =
@@ -96,11 +125,27 @@ static char kIsLowPowerKey;
 }
 
 
+/*
+ * ============================================================
+ *  低电量模式变化
+ *
+ *  电量不会重新读取。
+ *
+ *  只更新黄/白颜色。
+ * ============================================================
+ */
+
 - (void)lowPowerModeDidChange:(NSNotification *)notification {
 
     self.currentLowPowerState =
         [NSProcessInfo processInfo].isLowPowerModeEnabled;
 
+    /*
+     * 这里仍然需要刷新显示，
+     * 因为这是用户点击低电量模块后的正常功能。
+     *
+     * 不会读取 batteryLevel。
+     */
     dispatch_async(dispatch_get_main_queue(), ^{
 
         [self setNeedsLayout];
@@ -110,23 +155,50 @@ static char kIsLowPowerKey;
 }
 
 
+/*
+ * ============================================================
+ *  进入 / 离开控制中心 Window
+ * ============================================================
+ */
+
 - (void)didMoveToWindow {
 
     [super didMoveToWindow];
 
     if (self.window) {
 
+        /*
+         * 第一次进入控制中心：
+         * 同步捕捉一次当前电量。
+         *
+         * 没有 dispatch_async，
+         * 避免出现先显示旧值再闪一下新值。
+         */
         [self captureBatteryDataIfNeeded];
 
+        /*
+         * 低电量状态每次进入时同步读取。
+         */
         self.currentLowPowerState =
             [NSProcessInfo processInfo].isLowPowerModeEnabled;
 
     } else {
 
+        /*
+         * 控制中心关闭。
+         *
+         * 作废本次电量缓存。
+         */
         self.hasCapturedBattery = NO;
     }
 }
 
+
+/*
+ * ============================================================
+ *  几何
+ * ============================================================
+ */
 
 - (void)calculateGeometryWithBounds:(CGRect)bounds
                          iconScale:(CGFloat *)outScale
@@ -170,6 +242,12 @@ static char kIsLowPowerKey;
 }
 
 
+/*
+ * ============================================================
+ *  Layout
+ * ============================================================
+ */
+
 - (void)layoutSubviews {
 
     [super layoutSubviews];
@@ -184,21 +262,37 @@ static char kIsLowPowerKey;
         return;
     }
 
+
+    /*
+     * 第一次布局时捕捉电量。
+     *
+     * 后续不会再次读取。
+     */
     [self captureBatteryDataIfNeeded];
 
+
+    /*
+     * 电量使用缓存。
+     */
     CGFloat level =
         self.capturedLevel;
 
     int currentPercent =
         self.capturedPercent;
 
+
+    /*
+     * 低电量状态实时读取缓存变量。
+     */
     BOOL isLowPower =
         self.currentLowPowerState;
+
 
     self.percentLabel.text =
         [NSString stringWithFormat:
             @"%d%%",
             currentPercent];
+
 
     UIColor *themeColor =
         isLowPower
@@ -210,6 +304,7 @@ static char kIsLowPowerKey;
         :
         [UIColor whiteColor];
 
+
     self.percentLabel.textColor =
         isLowPower
         ?
@@ -217,35 +312,47 @@ static char kIsLowPowerKey;
         :
         [UIColor whiteColor];
 
+
     self.fillView.backgroundColor =
         themeColor;
+
 
     CGFloat iconScale = 0;
 
     CGRect iconRect =
         CGRectZero;
 
+
     [self calculateGeometryWithBounds:self.bounds
                            iconScale:&iconScale
                             iconRect:&iconRect];
+
 
     CGFloat bodyW =
         iconRect.size.width
         - (3.3f * iconScale);
 
+
     CGFloat padding =
         2.0f * iconScale;
 
+
+    /*
+     * 使用本次打开控制中心时的电量。
+     */
     CGFloat currentFillW =
         (bodyW - padding * 2.0f)
         * level;
 
+
     CGFloat minFillW =
         2.0f * iconScale;
+
 
     if (currentFillW < minFillW) {
         currentFillW = minFillW;
     }
+
 
     self.fillView.frame =
         CGRectMake(
@@ -256,13 +363,16 @@ static char kIsLowPowerKey;
                 - padding * 2.0f
         );
 
+
     self.fillView.layer.cornerRadius =
         2.0f * iconScale;
+
 
     self.percentLabel.font =
         [UIFont systemFontOfSize:
             9.3f * iconScale
             weight:UIFontWeightRegular];
+
 
     self.percentLabel.frame =
         CGRectMake(
@@ -275,6 +385,12 @@ static char kIsLowPowerKey;
         );
 }
 
+
+/*
+ * ============================================================
+ *  Draw
+ * ============================================================
+ */
 
 - (void)drawRect:(CGRect)rect {
 
@@ -290,17 +406,24 @@ static char kIsLowPowerKey;
         return;
     }
 
+
     CGFloat iconScale = 0;
 
     CGRect iconRect =
         CGRectZero;
 
+
     [self calculateGeometryWithBounds:self.bounds
                            iconScale:&iconScale
                             iconRect:&iconRect];
 
+
+    /*
+     * 低电量模式实时状态。
+     */
     BOOL isLowPower =
         self.currentLowPowerState;
+
 
     UIColor *strokeColor =
         isLowPower
@@ -309,15 +432,19 @@ static char kIsLowPowerKey;
         :
         [UIColor whiteColor];
 
+
     CGFloat bodyW =
         iconRect.size.width
         - (3.3f * iconScale);
 
+
     CGFloat lineWidth =
         1.4f * iconScale;
 
+
     CGFloat radius =
         4.2f * iconScale;
+
 
     UIBezierPath *bodyPath =
         [UIBezierPath
@@ -330,13 +457,19 @@ static char kIsLowPowerKey;
                 )
             cornerRadius:radius];
 
+
     bodyPath.lineWidth =
         lineWidth;
+
 
     [strokeColor setStroke];
 
     [bodyPath stroke];
 
+
+    /*
+     * 电池正极
+     */
     CGFloat capW =
         1.8f * iconScale;
 
@@ -356,6 +489,7 @@ static char kIsLowPowerKey;
     CGFloat capRadius =
         1.2f * iconScale;
 
+
     UIBezierPath *capPath =
         [UIBezierPath
             bezierPathWithRoundedRect:
@@ -374,6 +508,7 @@ static char kIsLowPowerKey;
                     capRadius
                 )];
 
+
     [strokeColor setFill];
 
     [capPath fill];
@@ -382,11 +517,19 @@ static char kIsLowPowerKey;
 @end
 
 
+
+/*
+ * ============================================================
+ *  Control Center
+ * ============================================================
+ */
+
 %hook CCUICAPackageView
 
 - (void)layoutSubviews {
 
     %orig;
+
 
     NSNumber *isLowPowerTarget =
         objc_getAssociatedObject(
@@ -394,6 +537,10 @@ static char kIsLowPowerKey;
             &kIsLowPowerKey
         );
 
+
+    /*
+     * 第一次判断目标模块。
+     */
     if (!isLowPowerTarget) {
 
         NSString *pkgName =
@@ -403,22 +550,43 @@ static char kIsLowPowerKey;
             :
             @"";
 
-        BOOL matched = [pkgName isEqualToString:@"com.apple.controlcenter.lowpower"];
+
+        BOOL matched =
+            [pkgName containsString:@"LowPower"]
+            ||
+            [pkgName containsString:@"Battery"];
+
 
         if (!matched) {
-            for (UIResponder *r = self; r; r = r.nextResponder) {
-                NSString *cls = NSStringFromClass([r class]);
-                if ([cls containsString:@"Brightness"] || [cls containsString:@"Display"]) {
+
+            for (UIResponder *r = self;
+                 r;
+                 r = r.nextResponder) {
+
+                NSString *cls =
+                    NSStringFromClass([r class]);
+
+
+                if ([cls containsString:@"Brightness"]
+                    ||
+                    [cls containsString:@"Display"]) {
+
                     break;
                 }
-                if ([cls isEqualToString:@"CCUILowPowerModeModuleViewController"]) {
+
+
+                if ([cls containsString:@"LowPower"]) {
+
                     matched = YES;
                     break;
                 }
             }
         }
 
-        isLowPowerTarget = @(matched);
+
+        isLowPowerTarget =
+            @(matched);
+
 
         objc_setAssociatedObject(
             self,
@@ -428,29 +596,55 @@ static char kIsLowPowerKey;
         );
     }
 
+
     if (!isLowPowerTarget.boolValue) {
         return;
     }
 
+
+    /*
+     * 隐藏原系统内容。
+     */
     for (UIView *subview in self.subviews) {
+
         if (subview.tag != 9999) {
             subview.hidden = YES;
         }
     }
 
-    self.backgroundColor = [UIColor clearColor];
 
-    CBCustomBatteryView *batteryView = [self viewWithTag:9999];
+    self.backgroundColor =
+        [UIColor clearColor];
+
+
+    /*
+     * 找到我们的电池视图。
+     */
+    CBCustomBatteryView *batteryView =
+        [self viewWithTag:9999];
+
 
     if (!batteryView) {
-        batteryView = [[CBCustomBatteryView alloc] initWithFrame:self.bounds];
-        batteryView.tag = 9999;
+
+        batteryView =
+            [[CBCustomBatteryView alloc]
+                initWithFrame:self.bounds];
+
+        batteryView.tag =
+            9999;
+
         [self addSubview:batteryView];
     }
 
-    batteryView.frame = self.bounds;
-    batteryView.hidden = NO;
-    batteryView.alpha = 1.0f;
+
+    batteryView.frame =
+        self.bounds;
+
+    batteryView.hidden =
+        NO;
+
+    batteryView.alpha =
+        1.0f;
 }
 
 %end
