@@ -2,43 +2,34 @@ name: Build SimpleCowbell Rootless
 
 on:
   push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-
+    runs-on: macos-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
-      - name: Setup Environment
+      - name: Install ldid
+        run: brew install ldid
+
+      - name: Setup Theos & SDKs
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential clang git perl zip unzip
+          git clone --recursive https://github.com/theos/theos.git ~/theos
+          rm -rf ~/theos/sdks
+          git clone https://github.com/theos/sdks.git ~/theos/sdks
+          ln -sf $(which ldid) ~/theos/bin/ldid
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-      - name: Setup Theos
-        run: |
-          git clone --recursive https://github.com/theos/theos.git $GITHUB_WORKSPACE/theos
-          echo "THEOS=$GITHUB_WORKSPACE/theos" >> $GITHUB_ENV
-
-      - name: Setup iOS SDK
-        run: |
-          rm -rf $THEOS/sdks
-          git clone --depth=1 https://github.com/theos/sdks.git $THEOS/sdks
-
-      - name: Build DEB Package
+      - name: Build Tweak Package
         run: |
           make clean
-          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 SDKVERSION=16.5
+          make package
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SimpleCowbell-Rootless
+          name: SimpleCowbell-deb
           path: packages/*.deb
