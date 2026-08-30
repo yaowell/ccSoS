@@ -184,14 +184,6 @@ static char kIsLowPowerKey;
 
     if (!isLowPowerTarget.boolValue) return;
 
-    for (UIView *subview in self.subviews) {
-        if (subview.tag != 9999) {
-            subview.alpha = 0.0f;
-        }
-    }
-
-    self.backgroundColor = [UIColor clearColor];
-
     CBCustomBatteryView *batteryView = [self viewWithTag:9999];
     if (!batteryView) {
         batteryView = [[CBCustomBatteryView alloc] initWithFrame:self.bounds];
@@ -202,6 +194,7 @@ static char kIsLowPowerKey;
     batteryView.frame = self.bounds;
     batteryView.hidden = NO;
     batteryView.alpha = 1.0f;
+    [self bringSubviewToFront:batteryView];
 }
 
 %end
