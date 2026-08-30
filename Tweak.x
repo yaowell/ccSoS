@@ -1,57 +1,96 @@
 #import <UIKit/UIKit.h>
-#import <objc/runtime.h>
 
 @interface CCUICAPackageView : UIView
 @property (nonatomic, copy) NSString *packageName;
 @end
+
+static void CBWriteLog(NSString *text) {
+    NSString *path = @"/var/mobile/Documents/CBDEBUG.txt";
+
+    NSString *old =
+        [NSString stringWithContentsOfFile:path
+                                  encoding:NSUTF8StringEncoding
+                                     error:nil];
+
+    if (!old) {
+        old = @"";
+    }
+
+    NSString *newText =
+        [old stringByAppendingFormat:@"%@\n", text];
+
+    [newText writeToFile:path
+              atomically:NO
+                encoding:NSUTF8StringEncoding
+                   error:nil];
+}
 
 %hook CCUICAPackageView
 
 - (void)didMoveToWindow {
     %orig;
 
-    UIView *view = (UIView *)self;
+    UIView *v = (UIView *)self;
 
-    NSLog(@"[CBDEBUG] ===== didMoveToWindow =====");
-    NSLog(@"[CBDEBUG] class=%@", NSStringFromClass([view class]));
-    NSLog(@"[CBDEBUG] window=%@", view.window);
-    NSLog(@"[CBDEBUG] superview=%@", view.superview);
+    CBWriteLog([NSString stringWithFormat:
+        @"\n===== didMoveToWindow =====\n"
+         "class=%@\n"
+         "window=%@\n"
+         "superview=%@\n"
+         "frame=%@\n"
+         "hidden=%d\n"
+         "alpha=%.2f",
+        NSStringFromClass([v class]),
+        v.window,
+        v.superview,
+        NSStringFromCGRect(v.frame),
+        v.hidden,
+        v.alpha
+    ]);
 }
-
 
 - (void)layoutSubviews {
     %orig;
 
-    UIView *view = (UIView *)self;
+    UIView *v = (UIView *)self;
 
-    NSLog(@"[CBDEBUG] ===== layoutSubviews =====");
-    NSLog(@"[CBDEBUG] class=%@", NSStringFromClass([view class]));
-    NSLog(@"[CBDEBUG] frame=%@", NSStringFromCGRect(view.frame));
-    NSLog(@"[CBDEBUG] hidden=%d alpha=%.2f",
-          view.hidden,
-          view.alpha);
+    CBWriteLog([NSString stringWithFormat:
+        @"\n===== layoutSubviews =====\n"
+         "class=%@\n"
+         "frame=%@\n"
+         "hidden=%d\n"
+         "alpha=%.2f\n"
+         "superview=%@",
+        NSStringFromClass([v class]),
+        NSStringFromCGRect(v.frame),
+        v.hidden,
+        v.alpha,
+        v.superview
+    ]);
 }
-
 
 - (void)setHidden:(BOOL)hidden {
 
-    UIView *view = (UIView *)self;
+    UIView *v = (UIView *)self;
 
-    NSLog(@"[CBDEBUG] ===== setHidden =====");
-    NSLog(@"[CBDEBUG] class=%@", NSStringFromClass([view class]));
-    NSLog(@"[CBDEBUG] hidden=%d", hidden);
+    CBWriteLog([NSString stringWithFormat:
+        @"===== setHidden ===== class=%@ hidden=%d",
+        NSStringFromClass([v class]),
+        hidden
+    ]);
 
     %orig;
 }
 
-
 - (void)setAlpha:(CGFloat)alpha {
 
-    UIView *view = (UIView *)self;
+    UIView *v = (UIView *)self;
 
-    NSLog(@"[CBDEBUG] ===== setAlpha =====");
-    NSLog(@"[CBDEBUG] class=%@", NSStringFromClass([view class]));
-    NSLog(@"[CBDEBUG] alpha=%.2f", alpha);
+    CBWriteLog([NSString stringWithFormat:
+        @"===== setAlpha ===== class=%@ alpha=%.2f",
+        NSStringFromClass([v class]),
+        alpha
+    ]);
 
     %orig;
 }
