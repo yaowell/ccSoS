@@ -1,52 +1,100 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
-@interface CCUILowPowerModeModuleViewController : UIViewController
-@property (nonatomic, strong) UILabel *cbPercentLabel;
+static char kIsLowPowerKey;
+
+@interface CCUICAPackageView : UIView
+@property (nonatomic, copy) NSString *packageName;
 @end
 
-%hook CCUILowPowerModeModuleViewController
-%property (nonatomic, strong) UILabel *cbPercentLabel;
+@interface CBCustomBatteryView : UIView
+@property (nonatomic, strong) UILabel *percentLabel;
+@end
 
-- (void)viewDidLoad {
-    %orig;
+@implementation CBCustomBatteryView
 
-    self.cbPercentLabel = [[UILabel alloc] init];
-    self.cbPercentLabel.font = [UIFont systemFontOfSize:10 weight:UIFontWeightSemibold];
-    self.cbPercentLabel.textAlignment = NSTextAlignmentCenter;
-    self.cbPercentLabel.alpha = 1.0f;
-    [self.view addSubview:self.cbPercentLabel];
+- (instancetype)initWithFrame:(CGRect)frame {
+    if (self = [super initWithFrame:frame]) {
+        self.userInteractionEnabled = NO;
+        self.backgroundColor = [UIColor clearColor];
+        self.opaque = NO;
+        
+        _percentLabel = [[UILabel alloc] init];
+        _percentLabel.textAlignment = NSTextAlignmentCenter;
+        _percentLabel.font = [UIFont systemFontOfSize:10 weight:UIFontWeightSemibold];
+        [self addSubview:_percentLabel];
+    }
+    return self;
 }
 
-- (void)viewWillAppear:(BOOL)animated {
-    %orig;
-
-    [UIDevice currentDevice].batteryMonitoringEnabled = YES;
-    float level = [UIDevice currentDevice].batteryLevel;
-    if (level < 0) level = 1.0f;
-    int percent = (int)round(level * 100);
-
-    BOOL lowPowerOn = [NSProcessInfo processInfo].isLowPowerModeEnabled;
-    self.cbPercentLabel.text = [NSString stringWithFormat:@"%d%%", percent];
-    self.cbPercentLabel.textColor = lowPowerOn ? [UIColor blackColor] : [UIColor whiteColor];
-}
-
-- (void)viewWillLayoutSubviews {
-    %orig;
-
-    if (self.cbPercentLabel) {
-        [self.cbPercentLabel sizeToFit];
-        CGFloat w = self.view.bounds.size.width;
-        CGFloat h = self.view.bounds.size.height;
-        self.cbPercentLabel.frame = CGRectMake((w - self.cbPercentLabel.bounds.size.width) / 2.0, h * 0.70, self.cbPercentLabel.bounds.size.width, self.cbPercentLabel.bounds.size.height);
+- (void)didMoveToWindow {
+    [super didMoveToWindow];
+    if(self.window) {
+        // 仅视图出现的时候，读取一次电量（和Cowbell viewWillAppear逻辑一样）
+        [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+        float level = [UIDevice currentDevice].batteryLevel;
+        if(level < 0) level = 1.0f;
+        int percent = (int)round(level * 100);
+        BOOL lowPowerOn = [NSProcessInfo processInfo].isLowPowerModeEnabled;
+        
+        self.percentLabel.text = [NSString stringWithFormat:@"%d%%", percent];
+        self.percentLabel.textColor = lowPowerOn ? [UIColor blackColor] : [UIColor whiteColor];
     }
 }
 
-- (void)refreshState {
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    if (self.percentLabel) {
+        [self.percentLabel sizeToFit];
+        CGFloat w = self.bounds.size.width;
+        CGFloat h = self.bounds.size.height;
+        self.percentLabel.frame = CGRectMake((w - self.percentLabel.bounds.size.width)/2.0, h * 0.70, self.percentLabel.bounds.size.width, self.percentLabel.bounds.size.height);
+    }
+}
+
+@end
+
+%hook CCUICAPackageView
+
+- (void)layoutSubviews {
     %orig;
 
-    BOOL lowPowerOn = [NSProcessInfo processInfo].isLowPowerModeEnabled;
-    self.cbPercentLabel.textColor = lowPowerOn ? [UIColor blackColor] : [UIColor whiteColor];
+    NSNumber *isLowPowerTarget = objc_getAssociatedObject(self, &kIsLowPowerKey);
+    if (!isLowPowerTarget) {
+        NSString *pkgName = [self respondsToSelector:@selector(packageName)] ? self.packageName : @"";
+        BOOL matched = [pkgName containsString:@"LowPower"] || [pkgName containsString:@"Battery"];
+
+        if (!matched) {
+            for (UIResponder *r = self; r; r = r.nextResponder) {
+                NSString *cls = NSStringFromClass([r class]);
+                if ([cls containsString:@"Brightness"] || [cls containsString:@"Display"]) break;
+                if ([cls containsString:@"LowPower"]) { matched = YES; break; }
+            }
+        }
+        isLowPowerTarget = @(matched);
+        objc_setAssociatedObject(self, &kIsLowPowerKey, isLowPowerTarget, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+
+    if (!isLowPowerTarget.boolValue) return;
+
+    for (UIView *subview in self.subviews) {
+        if (subview.tag != 9999) {
+            subview.hidden = YES;
+        }
+    }
+
+    self.backgroundColor = [UIColor clearColor];
+
+    CBCustomBatteryView *batteryView = [self viewWithTag:9999];
+    if (!batteryView) {
+        batteryView = [[CBCustomBatteryView alloc] initWithFrame:self.bounds];
+        batteryView.tag = 9999;
+        [self addSubview:batteryView];
+    }
+
+    batteryView.frame = self.bounds;
+    batteryView.hidden = NO;
+    batteryView.alpha = 1.0f;
 }
 
 %end
