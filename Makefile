@@ -1,3 +1,5 @@
+DEBUG = 0
+FINALPACKAGE = 1
 THEOS_PACKAGE_SCHEME = rootless
 TARGET := iphone:clang:latest:15.0
 
