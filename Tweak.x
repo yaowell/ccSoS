@@ -1,29 +1,26 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
-static char kIsLowPowerKey;
+static char kBatteryViewKey;
 
-@interface CCUICAPackageView : UIView
-@property (nonatomic, copy) NSString *packageName;
+@interface CCUILowPowerModeModuleViewController : UIViewController
 @end
 
-@interface CBCustomBatteryView : UIView
+@interface CBCustomBatteryPercentView : UIView
 @property (nonatomic, strong) UILabel *percentLabel;
 @property (nonatomic, assign) int cachedPercent;
 @property (nonatomic, assign) BOOL cachedLowPower;
-@property (nonatomic, assign) BOOL hasInit;
 @end
 
-@implementation CBCustomBatteryView
+@implementation CBCustomBatteryPercentView
 
 - (instancetype)initWithFrame:(CGRect)frame {
-    if (self = [super initWithFrame:frame]) {
+    if(self = [super initWithFrame:frame]){
         self.userInteractionEnabled = NO;
         self.backgroundColor = [UIColor clearColor];
-        self.opaque = NO;
+        self.clipsToBounds = NO;
         self.cachedPercent = -1;
         self.cachedLowPower = NO;
-        self.hasInit = NO;
         
         _percentLabel = [[UILabel alloc] init];
         _percentLabel.textAlignment = NSTextAlignmentCenter;
@@ -35,75 +32,48 @@ static char kIsLowPowerKey;
 
 - (void)didMoveToWindow {
     [super didMoveToWindow];
-    if(self.window) {
-        [UIDevice currentDevice].batteryMonitoringEnabled = YES;
-        float level = [UIDevice currentDevice].batteryLevel;
-        if(level < 0) level = 1.0f;
-        self.cachedPercent = (int)round(level * 100);
-        self.percentLabel.text = [NSString stringWithFormat:@"%d%%", self.cachedPercent];
-        
-        BOOL currentLowPower = [NSProcessInfo processInfo].isLowPowerModeEnabled;
-        self.cachedLowPower = currentLowPower;
-        self.percentLabel.textColor = currentLowPower ? [UIColor blackColor] : [UIColor whiteColor];
-        self.hasInit = YES;
-    }
+    if(!self.window) return;
+    
+    [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+    float level = [UIDevice currentDevice].batteryLevel;
+    if(level < 0) level = 1.0f;
+    self.cachedPercent = (int)round(level * 100);
+    self.percentLabel.text = [NSString stringWithFormat:@"%d%%",self.cachedPercent];
+    
+    BOOL state = [NSProcessInfo processInfo].isLowPowerModeEnabled;
+    self.cachedLowPower = state;
+    self.percentLabel.textColor = state ? [UIColor blackColor] : [UIColor whiteColor];
 }
 
 - (void)layoutSubviews {
     [super layoutSubviews];
-    if(!self.hasInit) return;
-    
-    BOOL currentLowPower = [NSProcessInfo processInfo].isLowPowerModeEnabled;
-    if(self.cachedLowPower != currentLowPower){
-        self.cachedLowPower = currentLowPower;
-        self.percentLabel.textColor = currentLowPower ? [UIColor blackColor] : [UIColor whiteColor];
+    BOOL state = [NSProcessInfo processInfo].isLowPowerModeEnabled;
+    if(self.cachedLowPower != state){
+        self.cachedLowPower = state;
+        self.percentLabel.textColor = state ? [UIColor blackColor] : [UIColor whiteColor];
     }
     
-    if (self.percentLabel) {
-        [self.percentLabel sizeToFit];
-        CGFloat w = self.bounds.size.width;
-        CGFloat h = self.bounds.size.height;
-        self.percentLabel.frame = CGRectMake((w - self.percentLabel.bounds.size.width)/2.0, h * 0.70, self.percentLabel.bounds.size.width, self.percentLabel.bounds.size.height);
-    }
+    [self.percentLabel sizeToFit];
+    CGFloat w = self.bounds.size.width;
+    CGFloat h = self.bounds.size.height;
+    self.percentLabel.frame = CGRectMake((w - self.percentLabel.bounds.size.width)/2, h*0.70, self.percentLabel.bounds.size.width, self.percentLabel.bounds.size.height);
 }
 
 @end
 
-%hook CCUICAPackageView
+%hook CCUILowPowerModeModuleViewController
 
-- (void)layoutSubviews {
+- (void)viewDidLayoutSubviews {
     %orig;
-
-    NSNumber *isLowPowerTarget = objc_getAssociatedObject(self, &kIsLowPowerKey);
-    if (!isLowPowerTarget) {
-        NSString *pkgName = [self respondsToSelector:@selector(packageName)] ? self.packageName : @"";
-        BOOL matched = [pkgName containsString:@"LowPower"] || [pkgName containsString:@"Battery"];
-
-        if (!matched) {
-            for (UIResponder *r = self; r; r = r.nextResponder) {
-                NSString *cls = NSStringFromClass([r class]);
-                if ([cls containsString:@"Brightness"] || [cls containsString:@"Display"]) break;
-                if ([cls containsString:@"LowPower"]) { matched = YES; break; }
-            }
-        }
-        isLowPowerTarget = @(matched);
-        objc_setAssociatedObject(self, &kIsLowPowerKey, isLowPowerTarget, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    
+    CBCustomBatteryPercentView *pView = objc_getAssociatedObject(self, &kBatteryViewKey);
+    if(!pView){
+        pView = [[CBCustomBatteryPercentView alloc] initWithFrame:self.view.bounds];
+        pView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [self.view addSubview:pView];
+        objc_setAssociatedObject(self, &kBatteryViewKey, pView, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
-
-    if (!isLowPowerTarget.boolValue) return;
-
-    self.backgroundColor = [UIColor clearColor];
-
-    CBCustomBatteryView *batteryView = [self viewWithTag:9999];
-    if (!batteryView) {
-        batteryView = [[CBCustomBatteryView alloc] initWithFrame:self.bounds];
-        batteryView.tag = 9999;
-        [self addSubview:batteryView];
-    }
-
-    batteryView.frame = self.bounds;
-    batteryView.hidden = NO;
-    batteryView.alpha = 1.0f;
+    pView.frame = self.view.bounds;
 }
 
 %end
