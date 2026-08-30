@@ -1,18 +1,13 @@
-DEBUG = 0
-FINALPACKAGE = 1
 THEOS_PACKAGE_SCHEME = rootless
-TARGET := iphone:clang:latest:15.0
+TARGET = iphone:clang:15.0
+ARCHS = arm64
 
 include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = SimpleCowbell
 
-$(TWEAK_NAME)_FILES = Tweak.x
-$(TWEAK_NAME)_CFLAGS = -fobjc-arc
-$(TWEAK_NAME)_FRAMEWORKS = UIKit CoreGraphics
-$(TWEAK_NAME)_LDFLAGS += -Wl,-segalign,0x4000
+SimpleCowbell_FILES = Tweak.x
+SimpleCowbell_CFLAGS = -fobjc-arc
+SimpleCowbell_STRIP = 1
 
-include $(THEOS_MAKE_PATH)/tweak.mk
-
-after-install::
-	install.exec "killall -9 SpringBoard"
+include $(THEOS)/makefiles/tweak.mk
