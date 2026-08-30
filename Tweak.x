@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
+#import <QuartzCore/QuartzCore.h>
 
 static char kIsLowPowerKey;
 
@@ -67,7 +68,6 @@ static char kIsLowPowerKey;
 
 - (void)updateBatteryData {
     if (!self.window) return;
-
     dispatch_async(dispatch_get_main_queue(), ^{
         [self updateBatteryUI];
     });
@@ -121,6 +121,10 @@ static char kIsLowPowerKey;
     UIColor *themeColor = isLowPower ? [UIColor colorWithRed:1.0 green:0.8 blue:0.0 alpha:1.0] : [UIColor whiteColor];
     UIColor *strokeColor = isLowPower ? [UIColor blackColor] : [UIColor whiteColor];
 
+    // 关闭隐式动画，和原版Cowbell瞬时刷新行为一致
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    
     self.percentLabel.textColor = strokeColor;
     self.fillView.backgroundColor = themeColor;
     self.bodyBorderLayer.strokeColor = strokeColor.CGColor;
@@ -139,6 +143,8 @@ static char kIsLowPowerKey;
 
     self.fillView.frame = CGRectMake(iconX + padding, iconY + padding, currentFillW, iconH - padding * 2.0f);
     self.fillView.layer.cornerRadius = 2.0f * scale;
+    
+    [CATransaction commit];
 }
 
 - (void)layoutSubviews {
