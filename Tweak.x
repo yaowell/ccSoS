@@ -9,7 +9,8 @@ static char kIsLowPowerKey;
 
 @interface CBCustomBatteryView : UIView
 @property (nonatomic, strong) UILabel *percentLabel;
-- (void)updateColorOnly;
+@property (nonatomic, assign) int cachedPercent;
+@property (nonatomic, assign) BOOL cachedLowPower;
 @end
 
 @implementation CBCustomBatteryView
@@ -19,6 +20,8 @@ static char kIsLowPowerKey;
         self.userInteractionEnabled = NO;
         self.backgroundColor = [UIColor clearColor];
         self.opaque = NO;
+        self.cachedPercent = -1;
+        self.cachedLowPower = NO;
         
         _percentLabel = [[UILabel alloc] init];
         _percentLabel.textAlignment = NSTextAlignmentCenter;
@@ -28,33 +31,25 @@ static char kIsLowPowerKey;
     return self;
 }
 
-- (void)updateColorOnly {
-    if(!self.percentLabel) return;
-    BOOL lowPowerOn = [NSProcessInfo processInfo].isLowPowerModeEnabled;
-    self.percentLabel.textColor = lowPowerOn ? [UIColor blackColor] : [UIColor whiteColor];
-}
-
 - (void)didMoveToWindow {
     [super didMoveToWindow];
-    NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     if(self.window) {
         [UIDevice currentDevice].batteryMonitoringEnabled = YES;
         float level = [UIDevice currentDevice].batteryLevel;
         if(level < 0) level = 1.0f;
-        int percent = (int)round(level * 100);
-        BOOL lowPowerOn = [NSProcessInfo processInfo].isLowPowerModeEnabled;
-        
-        self.percentLabel.text = [NSString stringWithFormat:@"%d%%", percent];
-        self.percentLabel.textColor = lowPowerOn ? [UIColor blackColor] : [UIColor whiteColor];
-        
-        [nc addObserver:self selector:@selector(updateColorOnly) name:NSProcessInfoPowerStateDidChangeNotification object:nil];
-    } else {
-        [nc removeObserver:self];
+        self.cachedPercent = (int)round(level * 100);
+        self.percentLabel.text = [NSString stringWithFormat:@"%d%%", self.cachedPercent];
     }
 }
 
 - (void)layoutSubviews {
     [super layoutSubviews];
+    BOOL currentLowPower = [NSProcessInfo processInfo].isLowPowerModeEnabled;
+    if(self.cachedLowPower != currentLowPower){
+        self.cachedLowPower = currentLowPower;
+        self.percentLabel.textColor = currentLowPower ? [UIColor blackColor] : [UIColor whiteColor];
+    }
+    
     if (self.percentLabel) {
         [self.percentLabel sizeToFit];
         CGFloat w = self.bounds.size.width;
