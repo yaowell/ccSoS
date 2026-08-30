@@ -2,12 +2,6 @@
 #import <objc/runtime.h>
 #import <QuartzCore/QuartzCore.h>
 
-static char kIsLowPowerKey;
-
-@interface CCUICAPackageView : UIView
-@property (nonatomic, copy) NSString *packageName;
-@end
-
 @interface CBCustomBatteryView : UIView
 @property (nonatomic, strong) UIView *fillView;
 @property (nonatomic, strong) UILabel *percentLabel;
@@ -161,40 +155,31 @@ static char kIsLowPowerKey;
 
 @end
 
-%hook CCUICAPackageView
+%hook CCUILowPowerModeModuleViewController
 
-- (void)layoutSubviews {
+- (void)viewDidLayoutSubviews {
     %orig;
 
-    NSNumber *isLowPowerTarget = objc_getAssociatedObject(self, &kIsLowPowerKey);
-    if (!isLowPowerTarget) {
-        NSString *pkgName = [self respondsToSelector:@selector(packageName)] ? self.packageName : @"";
-        BOOL matched = [pkgName containsString:@"LowPower"] || [pkgName containsString:@"Battery"];
+    UIView *glyphView = [self respondsToSelector:@selector(glyphView)] ? [self performSelector:@selector(glyphView)] : nil;
+    if (!glyphView) glyphView = self.view;
 
-        if (!matched) {
-            for (UIResponder *r = self; r; r = r.nextResponder) {
-                NSString *cls = NSStringFromClass([r class]);
-                if ([cls containsString:@"Brightness"] || [cls containsString:@"Display"]) break;
-                if ([cls containsString:@"LowPower"]) { matched = YES; break; }
-            }
+    // 隐藏原生图标层的透明度，但不影响点击响应和状态机
+    for (CALayer *sublayer in glyphView.layer.sublayers) {
+        if (sublayer.delegate && [NSStringFromClass([sublayer.delegate class]) containsString:@"Package"]) {
+            sublayer.hidden = YES;
         }
-        isLowPowerTarget = @(matched);
-        objc_setAssociatedObject(self, &kIsLowPowerKey, isLowPowerTarget, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
 
-    if (!isLowPowerTarget.boolValue) return;
-
-    CBCustomBatteryView *batteryView = [self viewWithTag:9999];
+    CBCustomBatteryView *batteryView = [glyphView viewWithTag:9999];
     if (!batteryView) {
-        batteryView = [[CBCustomBatteryView alloc] initWithFrame:self.bounds];
+        batteryView = [[CBCustomBatteryView alloc] initWithFrame:glyphView.bounds];
         batteryView.tag = 9999;
-        [self addSubview:batteryView];
+        [glyphView addSubview:batteryView];
     }
 
-    batteryView.frame = self.bounds;
+    batteryView.frame = glyphView.bounds;
     batteryView.hidden = NO;
-    batteryView.alpha = 1.0f;
-    [self bringSubviewToFront:batteryView];
+    [glyphView bringSubviewToFront:batteryView];
 }
 
 %end
