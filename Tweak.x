@@ -54,6 +54,10 @@ static char kIsLowPowerKey;
 - (void)layoutSubviews {
     [super layoutSubviews];
     
+    CGFloat w = self.bounds.size.width;
+    CGFloat h = self.bounds.size.height;
+    CGFloat scale = MIN(w, h) / 72.0f;
+    
     if(self.needFreshData){
         [UIDevice currentDevice].batteryMonitoringEnabled = YES;
         float level = [UIDevice currentDevice].batteryLevel;
@@ -69,8 +73,7 @@ static char kIsLowPowerKey;
         self.percentLabel.textColor = currentState ? [UIColor blackColor] : [UIColor whiteColor];
     }
     
-    CGFloat w = self.bounds.size.width;
-    CGFloat h = self.bounds.size.height;
+    self.percentLabel.font = [UIFont systemFontOfSize: 10.0f * scale weight:UIFontWeightSemibold];
     [self.percentLabel sizeToFit];
     self.percentLabel.frame = CGRectMake((w - self.percentLabel.bounds.size.width)/2.0f, h * 0.82, self.percentLabel.bounds.size.width, self.percentLabel.bounds.size.height);
 }
@@ -85,7 +88,7 @@ static char kIsLowPowerKey;
     NSNumber *isLowPowerTarget = objc_getAssociatedObject(self, &kIsLowPowerKey);
     if (!isLowPowerTarget) {
         NSString *pkgName = [self respondsToSelector:@selector(packageName)] ? self.packageName : @"";
-        BOOL matched = [pkgName containsString:@"LowPower"] || [pkgName containsString:@"Battery"];
+        BOOL matched = [pkgName containsString:@"LowPower"];
 
         if (!matched) {
             for (UIResponder *r = self; r; r = r.nextResponder) {
