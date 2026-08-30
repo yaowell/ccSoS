@@ -66,15 +66,27 @@
     self.percentLabel.textColor = isLowPower ? [UIColor blackColor] : [UIColor whiteColor];
     self.fillView.backgroundColor = themeColor;
 
-    CGFloat totalW = 32.0f, iconH = 14.0f;
-    CGFloat iconX = (w - totalW) / 2.0f, iconY = (h - iconH) / 2.0f - 1.0f; 
-    CGFloat bodyW = totalW - 3.3f, padding = 2.0f;
+    // 1. 动态自适应尺寸（按模块高度比例计算，自动适配 14 Pro Max 等各大屏机型）
+    CGFloat iconH = h * 0.32f;         // 电池图标高度
+    CGFloat totalW = iconH * 2.3f;      // 按比例自适应宽度
+    CGFloat labelH = 12.0f;            // 百分比文字高度
+    CGFloat spacing = 4.0f;             // 图标与下方文字的间距
 
+    // 2. 将 (图标 + 间距 + 文字) 看作整体，在模块中垂直/水平双向居中
+    CGFloat totalCombinedH = iconH + spacing + labelH;
+    CGFloat iconY = (h - totalCombinedH) / 2.0f;
+    CGFloat iconX = (w - totalW) / 2.0f;
+
+    // 3. 计算内部电量填充层
+    CGFloat bodyW = totalW - 3.3f;
+    CGFloat padding = 2.0f;
     CGFloat currentFillW = (bodyW - padding * 2.0f) * level;
     if (currentFillW < 2.0f) currentFillW = 2.0f;
     
     self.fillView.frame = CGRectMake(iconX + padding, iconY + padding, currentFillW, iconH - padding * 2.0f);
-    self.percentLabel.frame = CGRectMake(0, iconY + iconH + 5.5f, w, 11.0f);
+    
+    // 4. 文字居中放置在图标下方
+    self.percentLabel.frame = CGRectMake(0, iconY + iconH + spacing, w, labelH);
 }
 
 - (void)drawRect:(CGRect)rect {
@@ -83,19 +95,31 @@
     CGFloat w = self.bounds.size.width, h = self.bounds.size.height;
     if (w <= 0 || h <= 0) return;
 
-    CGFloat totalW = 32.0f, iconH = 14.0f;
-    CGFloat iconX = (w - totalW) / 2.0f, iconY = (h - iconH) / 2.0f - 1.0f;
+    // 与 layoutSubviews 中的自适应尺寸保持完全一致
+    CGFloat iconH = h * 0.32f;
+    CGFloat totalW = iconH * 2.3f;
+    CGFloat labelH = 12.0f;
+    CGFloat spacing = 4.0f;
+
+    CGFloat totalCombinedH = iconH + spacing + labelH;
+    CGFloat iconY = (h - totalCombinedH) / 2.0f;
+    CGFloat iconX = (w - totalW) / 2.0f;
 
     BOOL isLowPower = [NSProcessInfo processInfo].isLowPowerModeEnabled;
     UIColor *strokeColor = isLowPower ? [UIColor blackColor] : [UIColor whiteColor];
 
+    // 绘制电池主体外框
     CGFloat bodyW = totalW - 3.3f;
     UIBezierPath *bodyPath = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(iconX, iconY, bodyW, iconH) cornerRadius:4.2f];
     bodyPath.lineWidth = 1.4f;
     [strokeColor setStroke];
     [bodyPath stroke];
     
-    CGFloat capW = 1.8f, capH = 4.8f, capX = iconX + bodyW + 1.5f, capY = iconY + (iconH - capH) / 2.0f;
+    // 绘制电池正极凸起（小正极帽）
+    CGFloat capW = 1.8f, capH = iconH * 0.35f;
+    CGFloat capX = iconX + bodyW + 1.2f;
+    CGFloat capY = iconY + (iconH - capH) / 2.0f;
+    
     UIBezierPath *capPath = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(capX, capY, capW, capH)
                                                   byRoundingCorners:(UIRectCornerTopRight | UIRectCornerBottomRight)
                                                         cornerRadii:CGSizeMake(1.2f, 1.2f)];
