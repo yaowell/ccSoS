@@ -1,35 +1,18 @@
-name: Build SimpleCowbell Rootless
+DEBUG = 0
+FINALPACKAGE = 1
+THEOS_PACKAGE_SCHEME = rootless
+TARGET := iphone:clang:latest:15.0
 
-on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+include $(THEOS)/makefiles/common.mk
 
-jobs:
-  build:
-    runs-on: macos-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+TWEAK_NAME = SimpleCowbell
 
-      - name: Install ldid
-        run: brew install ldid
+$(TWEAK_NAME)_FILES = Tweak.x
+$(TWEAK_NAME)_CFLAGS = -fobjc-arc
+$(TWEAK_NAME)_FRAMEWORKS = UIKit CoreGraphics
+$(TWEAK_NAME)_LDFLAGS += -Wl,-segalign,0x4000
 
-      - name: Setup Theos & SDKs
-        run: |
-          git clone --recursive https://github.com/theos/theos.git ~/theos
-          rm -rf ~/theos/sdks
-          git clone https://github.com/theos/sdks.git ~/theos/sdks
-          ln -sf $(which ldid) ~/theos/bin/ldid
-          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+include $(THEOS_MAKE_PATH)/tweak.mk
 
-      - name: Build Tweak Package
-        run: |
-          make clean
-          make package
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: SimpleCowbell-deb
-          path: packages/*.deb
+after-install::
+	install.exec "killall -9 SpringBoard"
