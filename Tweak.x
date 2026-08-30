@@ -11,6 +11,7 @@ static char kIsLowPowerKey;
 @property (nonatomic, strong) UILabel *percentLabel;
 @property (nonatomic, assign) int cachedPercent;
 @property (nonatomic, assign) BOOL cachedLowPower;
+@property (nonatomic, assign) BOOL hasInit;
 @end
 
 @implementation CBCustomBatteryView
@@ -22,6 +23,7 @@ static char kIsLowPowerKey;
         self.opaque = NO;
         self.cachedPercent = -1;
         self.cachedLowPower = NO;
+        self.hasInit = NO;
         
         _percentLabel = [[UILabel alloc] init];
         _percentLabel.textAlignment = NSTextAlignmentCenter;
@@ -39,11 +41,18 @@ static char kIsLowPowerKey;
         if(level < 0) level = 1.0f;
         self.cachedPercent = (int)round(level * 100);
         self.percentLabel.text = [NSString stringWithFormat:@"%d%%", self.cachedPercent];
+        
+        BOOL currentLowPower = [NSProcessInfo processInfo].isLowPowerModeEnabled;
+        self.cachedLowPower = currentLowPower;
+        self.percentLabel.textColor = currentLowPower ? [UIColor blackColor] : [UIColor whiteColor];
+        self.hasInit = YES;
     }
 }
 
 - (void)layoutSubviews {
     [super layoutSubviews];
+    if(!self.hasInit) return;
+    
     BOOL currentLowPower = [NSProcessInfo processInfo].isLowPowerModeEnabled;
     if(self.cachedLowPower != currentLowPower){
         self.cachedLowPower = currentLowPower;
