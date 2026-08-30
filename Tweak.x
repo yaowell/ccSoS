@@ -30,7 +30,6 @@ static char kIsLowPowerKey;
 - (void)didMoveToWindow {
     [super didMoveToWindow];
     if(self.window) {
-        // 仅视图出现的时候，读取一次电量（和Cowbell viewWillAppear逻辑一样）
         [UIDevice currentDevice].batteryMonitoringEnabled = YES;
         float level = [UIDevice currentDevice].batteryLevel;
         if(level < 0) level = 1.0f;
@@ -76,12 +75,6 @@ static char kIsLowPowerKey;
     }
 
     if (!isLowPowerTarget.boolValue) return;
-
-    for (UIView *subview in self.subviews) {
-        if (subview.tag != 9999) {
-            subview.hidden = YES;
-        }
-    }
 
     self.backgroundColor = [UIColor clearColor];
 
