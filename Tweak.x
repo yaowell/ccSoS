@@ -70,7 +70,6 @@ static char kIsLowPowerKey;
 
 - (void)updateBatteryData {
     if (!self.window) return;
-    // 极致优化：使用系统的绘图合并机制，避免派发多个 Main QueueBlock
     [self setNeedsLayout];
 }
 
@@ -119,7 +118,6 @@ static char kIsLowPowerKey;
     int currentPercent = (int)round(level * 100);
     BOOL isLowPower = [NSProcessInfo processInfo].isLowPowerModeEnabled;
 
-    // 极致优化拦截：若电量%、低电量模式状态、View尺寸均无变化，跳过 GPU 重绘
     if (!boundsChanged && currentPercent == self.lastPercent && isLowPower == self.lastLowPowerState) {
         return;
     }
@@ -188,7 +186,7 @@ static char kIsLowPowerKey;
 
     for (UIView *subview in self.subviews) {
         if (subview.tag != 9999) {
-            subview.hidden = YES;
+            subview.alpha = 0.0f;
         }
     }
 
