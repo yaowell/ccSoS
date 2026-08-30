@@ -10,6 +10,8 @@ static char kIsLowPowerKey;
 @interface CBCustomBatteryView : UIView
 @property (nonatomic, strong) UIView *fillView;
 @property (nonatomic, strong) UILabel *percentLabel;
+@property (nonatomic, assign) int lastPercent;
+@property (nonatomic, assign) BOOL lastLowPowerState;
 - (void)updateBatteryData;
 @end
 
@@ -20,6 +22,8 @@ static char kIsLowPowerKey;
         self.userInteractionEnabled = NO;
         self.backgroundColor = [UIColor clearColor];
         self.opaque = NO;
+        self.lastPercent = -1;
+        self.lastLowPowerState = NO;
         
         _fillView = [[UIView alloc] init];
         _fillView.clipsToBounds = YES;
@@ -38,7 +42,6 @@ static char kIsLowPowerKey;
     [super didMoveToWindow];
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     if (self.window) {
-        // 挂载到 Window 时强行确保开启电量监控，防御 Respring 后系统的重置行为
         if (![UIDevice currentDevice].isBatteryMonitoringEnabled) {
             [UIDevice currentDevice].batteryMonitoringEnabled = YES;
         }
@@ -61,6 +64,14 @@ static char kIsLowPowerKey;
     dispatch_async(dispatch_get_main_queue(), ^{
         if (![UIDevice currentDevice].isBatteryMonitoringEnabled) {
             [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+        }
+        float level = [UIDevice currentDevice].batteryLevel;
+        if (level < 0) level = 1.0f;
+        int currentPercent = (int)round(level * 100);
+        BOOL currentLowPower = [NSProcessInfo processInfo].isLowPowerModeEnabled;
+
+        if (currentPercent == self.lastPercent && currentLowPower == self.lastLowPowerState) {
+            return;
         }
         [self setNeedsLayout];
         [self setNeedsDisplay];
@@ -90,19 +101,21 @@ static char kIsLowPowerKey;
     CGFloat w = self.bounds.size.width, h = self.bounds.size.height;
     if (w <= 0 || h <= 0) return;
 
-    // 保障机制：如果此时 monitoring 被意外关闭，强行拉起
     if (![UIDevice currentDevice].isBatteryMonitoringEnabled) {
         [UIDevice currentDevice].batteryMonitoringEnabled = YES;
     }
 
     float level = [UIDevice currentDevice].batteryLevel;
     if (level < 0) level = 1.0f;
-    
-    self.percentLabel.text = [NSString stringWithFormat:@"%d%%", (int)round(level * 100)];
-
+    int currentPercent = (int)round(level * 100);
     BOOL isLowPower = [NSProcessInfo processInfo].isLowPowerModeEnabled;
-    UIColor *themeColor = isLowPower ? [UIColor colorWithRed:1.0 green:0.8 blue:0.0 alpha:1.0] : [UIColor whiteColor];
+
+    self.lastPercent = currentPercent;
+    self.lastLowPowerState = isLowPower;
     
+    self.percentLabel.text = [NSString stringWithFormat:@"%d%%", currentPercent];
+
+    UIColor *themeColor = isLowPower ? [UIColor colorWithRed:1.0 green:0.8 blue:0.0 alpha:1.0] : [UIColor whiteColor];
     self.percentLabel.textColor = isLowPower ? [UIColor blackColor] : [UIColor whiteColor];
     self.fillView.backgroundColor = themeColor;
 
