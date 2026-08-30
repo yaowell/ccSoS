@@ -26,11 +26,21 @@
         [self addSubview:_percentLabel];
 
         [UIDevice currentDevice].batteryMonitoringEnabled = YES;
-        NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
-        [nc addObserver:self selector:@selector(updateBatteryData) name:UIDeviceBatteryLevelDidChangeNotification object:nil];
-        [nc addObserver:self selector:@selector(updateBatteryData) name:NSProcessInfoPowerStateDidChangeNotification object:nil];
     }
     return self;
+}
+
+- (void)didMoveToWindow {
+    [super didMoveToWindow];
+    NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
+    if (self.window) {
+        // 挂到屏幕：注册通知
+        [nc addObserver:self selector:@selector(updateBatteryData) name:UIDeviceBatteryLevelDidChangeNotification object:nil];
+        [nc addObserver:self selector:@selector(updateBatteryData) name:NSProcessInfoPowerStateDidChangeNotification object:nil];
+    } else {
+        // 离开屏幕：立刻移除通知，不再接收电量事件
+        [nc removeObserver:self];
+    }
 }
 
 - (void)dealloc {
@@ -38,6 +48,9 @@
 }
 
 - (void)updateBatteryData {
+    // 不在屏幕直接放弃重绘
+    if(!self.window) return;
+
     dispatch_async(dispatch_get_main_queue(), ^{
         if (![UIDevice currentDevice].isBatteryMonitoringEnabled) {
             [UIDevice currentDevice].batteryMonitoringEnabled = YES;
@@ -164,7 +177,6 @@
 
     batteryView.frame = self.bounds;
     batteryView.alpha = 1.0f;
-    [batteryView updateBatteryData];
 }
 
 %end
