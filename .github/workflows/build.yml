@@ -30,7 +30,7 @@ jobs:
       - name: Setup iOS SDK
         run: |
           mkdir -p $THEOS/sdks
-          curl -LO https://github.com/theos/sdks/releases/download/v1.0/iPhoneOS16.5.sdk.tar.xz
+          curl -LO https://github.com/theos/sdks/releases/download/v16.5/iPhoneOS16.5.sdk.tar.xz
           tar -xf iPhoneOS16.5.sdk.tar.xz -C $THEOS/sdks/
           rm iPhoneOS16.5.sdk.tar.xz
 
