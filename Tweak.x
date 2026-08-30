@@ -14,6 +14,8 @@ static char kIsLowPowerKey;
 @property (nonatomic, strong) CAShapeLayer *bodyBorderLayer;
 @property (nonatomic, strong) CAShapeLayer *capLayer;
 @property (nonatomic, assign) CGRect lastBounds;
+@property (nonatomic, assign) int lastPercent;
+@property (nonatomic, assign) BOOL lastLowPowerState;
 - (void)updateBatteryData;
 @end
 
@@ -25,6 +27,8 @@ static char kIsLowPowerKey;
         self.backgroundColor = [UIColor clearColor];
         self.opaque = NO;
         self.lastBounds = CGRectZero;
+        self.lastPercent = -1;
+        self.lastLowPowerState = NO;
         
         _bodyBorderLayer = [CAShapeLayer layer];
         _bodyBorderLayer.fillColor = [UIColor clearColor].CGColor;
@@ -40,8 +44,6 @@ static char kIsLowPowerKey;
         _percentLabel = [[UILabel alloc] init];
         _percentLabel.textAlignment = NSTextAlignmentCenter;
         [self addSubview:_percentLabel];
-
-        [UIDevice currentDevice].batteryMonitoringEnabled = YES;
     }
     return self;
 }
@@ -68,9 +70,8 @@ static char kIsLowPowerKey;
 
 - (void)updateBatteryData {
     if (!self.window) return;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self updateBatteryUI];
-    });
+    // 极致优化：使用系统的绘图合并机制，避免派发多个 Main QueueBlock
+    [self setNeedsLayout];
 }
 
 - (void)updateLayoutIfBoundsChanged {
@@ -110,18 +111,26 @@ static char kIsLowPowerKey;
 }
 
 - (void)updateBatteryUI {
+    BOOL boundsChanged = !CGRectEqualToRect(self.bounds, self.lastBounds);
     [self updateLayoutIfBoundsChanged];
 
     float level = [UIDevice currentDevice].batteryLevel;
     if (level < 0) level = 1.0f;
-
-    self.percentLabel.text = [NSString stringWithFormat:@"%d%%", (int)round(level * 100)];
-
+    int currentPercent = (int)round(level * 100);
     BOOL isLowPower = [NSProcessInfo processInfo].isLowPowerModeEnabled;
+
+    // 极致优化拦截：若电量%、低电量模式状态、View尺寸均无变化，跳过 GPU 重绘
+    if (!boundsChanged && currentPercent == self.lastPercent && isLowPower == self.lastLowPowerState) {
+        return;
+    }
+
+    self.lastPercent = currentPercent;
+    self.lastLowPowerState = isLowPower;
+    self.percentLabel.text = [NSString stringWithFormat:@"%d%%", currentPercent];
+
     UIColor *themeColor = isLowPower ? [UIColor colorWithRed:1.0 green:0.8 blue:0.0 alpha:1.0] : [UIColor whiteColor];
     UIColor *strokeColor = isLowPower ? [UIColor blackColor] : [UIColor whiteColor];
 
-    // 关闭隐式动画，和原版Cowbell瞬时刷新行为一致
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     
