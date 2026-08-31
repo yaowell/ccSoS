@@ -59,7 +59,7 @@ static char kCowbellIsLowPowerKey;
  ============================================================
  */
 
-static CGFloat const COWBELL_PERCENT_Y_OFFSET = 10.0;
+static CGFloat const COWBELL_PERCENT_Y_OFFSET = 10.8;
 
 
 /*
