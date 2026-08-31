@@ -13,6 +13,7 @@ extern NSString* const kCAFilterDestOut;
 @interface CCUIContentModuleContainerViewController : UIViewController
 @property (nonatomic, readonly, copy) NSString *moduleIdentifier;
 @property (nonatomic, retain) UILabel *cowbellLabel;
+@property (nonatomic, retain) NSLayoutConstraint *bottomConstraint;
 @property (nonatomic, readonly, assign, getter=isExpanded) BOOL expanded;
 - (UIView *)contentView;
 - (void)updateCowbellState;
@@ -20,6 +21,7 @@ extern NSString* const kCAFilterDestOut;
 
 %hook CCUIContentModuleContainerViewController
 %property (nonatomic, retain) UILabel *cowbellLabel;
+%property (nonatomic, retain) NSLayoutConstraint *bottomConstraint;
 
 %new
 - (void)updateCowbellState {
@@ -32,33 +34,27 @@ extern NSString* const kCAFilterDestOut;
 
     if (!self.cowbellLabel) return;
 
-    // 1. 判断是否展开（二级菜单模式）：展开时强制彻底隐藏
-    BOOL isExpandedState = NO;
-    if ([self respondsToSelector:@selector(isExpanded)]) {
-        isExpandedState = self.expanded;
-    }
-
-    UIView *targetContainer = [self respondsToSelector:@selector(contentView)] ? [self contentView] : self.view;
-    CGFloat parentH = targetContainer.bounds.size.height;
-
-    if (isExpandedState || parentH > 100.0) {
-        self.cowbellLabel.hidden = YES;
-        self.cowbellLabel.alpha = 0.0;
-        return;
-    }
-
-    // 2. 一级菜单状态：显示并刷新文本
-    self.cowbellLabel.hidden = NO;
-    self.cowbellLabel.alpha = 1.0;
-
+    // 1. 读取并刷新电量
     float level = [[UIDevice currentDevice] batteryLevel];
     float safeLevel = (level < 0) ? 1.0 : level;
     int battery = (int)round(safeLevel * 100);
     self.cowbellLabel.text = [NSString stringWithFormat:@"%i%%", battery];
 
-    // 3. 状态变色
+    // 2. 状态变色（保持一致）
     BOOL isLPMOn = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
     self.cowbellLabel.textColor = isLPMOn ? [UIColor blackColor] : [UIColor whiteColor];
+
+    // 3. 动态更新约束值（根据展开状态适配偏移）
+    BOOL isExpandedState = NO;
+    if ([self respondsToSelector:@selector(isExpanded)]) {
+        isExpandedState = self.expanded;
+    }
+
+    // 二级菜单大卡片往上推到大电池下方 (-38pt)，一级小卡片保持在底部 (-6pt)
+    CGFloat targetOffset = isExpandedState ? -38.0 : -6.0;
+    if (self.bottomConstraint && self.bottomConstraint.constant != targetOffset) {
+        self.bottomConstraint.constant = targetOffset;
+    }
 }
 
 - (void)viewDidLoad {
@@ -84,7 +80,7 @@ extern NSString* const kCAFilterDestOut;
             label.backgroundColor = [UIColor clearColor];
             label.textColor = [UIColor whiteColor];
 
-            // 保持 Cowbell 镂空
+            // 保持 Cowbell 经典镂空效果
             CAFilter *filter = [CAFilter filterWithType:kCAFilterDestOut];
             label.layer.filters = @[filter];
 
@@ -92,11 +88,12 @@ extern NSString* const kCAFilterDestOut;
             [targetContainer addSubview:label];
             self.cowbellLabel = label;
 
-            // 自动布局定位
-            [NSLayoutConstraint activateConstraints:@[
-                [label.centerXAnchor constraintEqualToAnchor:targetContainer.centerXAnchor],
-                [label.bottomAnchor constraintEqualToAnchor:targetContainer.bottomAnchor constant:-6.0]
-            ]];
+            // 创建约束并保存 bottomConstraint 的引用
+            NSLayoutConstraint *centerX = [label.centerXAnchor constraintEqualToAnchor:targetContainer.centerXAnchor];
+            NSLayoutConstraint *bottom = [label.bottomAnchor constraintEqualToAnchor:targetContainer.bottomAnchor constant:-6.0];
+
+            self.bottomConstraint = bottom;
+            [NSLayoutConstraint activateConstraints:@[centerX, bottom]];
         }
 
         [self updateCowbellState];
@@ -128,21 +125,20 @@ extern NSString* const kCAFilterDestOut;
     }
 }
 
-// 展开/收起转场处理：瞬间将 alpha 和 hidden 组合拦截，不给它在二级菜单露脸的机会
+// 在转场动画过程中平滑切换约束，全程不隐藏，实现 100% 同步跟手
 - (void)willTransitionToExpandedContentMode:(BOOL)expanded {
     %orig(expanded);
 
     if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
-        if (!self.cowbellLabel) return;
+        if (!self.bottomConstraint) return;
 
-        if (expanded) {
-            self.cowbellLabel.hidden = YES;
-            self.cowbellLabel.alpha = 0.0;
-        } else {
-            self.cowbellLabel.hidden = NO;
-            self.cowbellLabel.alpha = 1.0;
-            [self updateCowbellState];
-        }
+        // 展开时偏移 -38.0（大电池正下方），收起时偏移 -6.0（小电池正下方）
+        self.bottomConstraint.constant = expanded ? -38.0 : -6.0;
+
+        // 让 UIView 动画闭包跟着系统转场一起做 Layout 动画
+        [UIView animateWithDuration:0.35 animations:^{
+            [self.view layoutIfNeeded];
+        }];
     }
 }
 
