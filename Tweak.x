@@ -368,6 +368,45 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
 
 /*
  ============================================================
+              递归寻找 PackageView
+              
+              注意：
+              不使用递归 Block。
+              避免 Theos -Werror 编译错误。
+ ============================================================
+ */
+
+static void CowbellFindPackageViews(
+    UIView *root,
+    NSMutableArray *packageViews
+) {
+
+    if (!root) return;
+
+
+    Class packageClass =
+        NSClassFromString(@"CCUICAPackageView");
+
+
+    if (packageClass &&
+        [root isKindOfClass:packageClass]) {
+
+        [packageViews addObject:root];
+    }
+
+
+    for (UIView *subview in root.subviews) {
+
+        CowbellFindPackageViews(
+            subview,
+            packageViews
+        );
+    }
+}
+
+
+/*
+ ============================================================
                     CCUICAPackageView Hook
  ============================================================
  */
@@ -597,27 +636,10 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
         [NSMutableArray array];
 
 
-    void (^findPackageViews)(UIView *) =
-    ^(UIView *root) {
-
-        if (!root) return;
-
-
-        if ([root isKindOfClass:
-             NSClassFromString(@"CCUICAPackageView")]) {
-
-            [packageViews addObject:root];
-        }
-
-
-        for (UIView *subview in root.subviews) {
-
-            findPackageViews(subview);
-        }
-    };
-
-
-    findPackageViews(self.view);
+    CowbellFindPackageViews(
+        self.view,
+        packageViews
+    );
 
 
     /*
