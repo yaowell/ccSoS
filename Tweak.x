@@ -31,47 +31,15 @@ extern NSString* const kCAFilterDestOut;
 
     if (!self.cowbellLabel) return;
 
-    // 1. 读取当前电量
+    // 1. 读取并更新文本
     float level = [[UIDevice currentDevice] batteryLevel];
     float safeLevel = (level < 0) ? 1.0 : level;
     int battery = (int)round(safeLevel * 100);
     self.cowbellLabel.text = [NSString stringWithFormat:@"%i%%", battery];
 
-    // 2. 判断低电量模式切换颜色（防止 DestOut 在部分系统版本下失效，做了颜色双重保险）
+    // 2. 状态变色（防止纯镂空在特定背景下识别度低）
     BOOL isLPMOn = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
     self.cowbellLabel.textColor = isLPMOn ? [UIColor blackColor] : [UIColor whiteColor];
-
-    // 3. 计算位置
-    UIView *targetContainer = [self respondsToSelector:@selector(contentView)] ? [self contentView] : self.view;
-
-    CGFloat parentW = targetContainer.bounds.size.width;
-    CGFloat parentH = targetContainer.bounds.size.height;
-
-    // 展开二级卡片时隐藏
-    if (parentW > 100.0 || parentH > 100.0) {
-        self.cowbellLabel.hidden = YES;
-        return;
-    }
-
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-
-    [self.cowbellLabel sizeToFit];
-
-    CGFloat labelW = self.cowbellLabel.frame.size.width;
-    CGFloat labelH = self.cowbellLabel.frame.size.height;
-
-    // 精准放置在卡片下半部分
-    self.cowbellLabel.frame = CGRectMake(
-        (parentW - labelW) / 2.0,
-        parentH - labelH - 6.0,
-        labelW,
-        labelH
-    );
-
-    self.cowbellLabel.hidden = NO;
-
-    [CATransaction commit];
 }
 
 - (void)viewDidLoad {
@@ -97,12 +65,20 @@ extern NSString* const kCAFilterDestOut;
             label.backgroundColor = [UIColor clearColor];
             label.textColor = [UIColor whiteColor];
 
-            // 保持镂空滤镜
+            // 保持 Cowbell 灵魂镂空
             CAFilter *filter = [CAFilter filterWithType:kCAFilterDestOut];
             label.layer.filters = @[filter];
 
+            // 开启 AutoLayout，废弃绝对坐标计算
+            label.translatesAutoresizingMaskIntoConstraints = NO;
             [targetContainer addSubview:label];
             self.cowbellLabel = label;
+
+            // 锁死在图标容器内部下半部分（水平居中，底部向上偏移 6pt）
+            [NSLayoutConstraint activateConstraints:@[
+                [label.centerXAnchor constraintEqualToAnchor:targetContainer.centerXAnchor],
+                [label.bottomAnchor constraintEqualToAnchor:targetContainer.bottomAnchor constant:-6.0]
+            ]];
         }
 
         [self updateCowbellState];
@@ -134,19 +110,16 @@ extern NSString* const kCAFilterDestOut;
     }
 }
 
-// 解决切回不同步的关键：在转场开始时，禁止在动画闭包里重新计算 frame，直接保持 hidden 切换
+// 展开大卡片时淡出隐藏，切回时淡入，不打断动画
 - (void)willTransitionToExpandedContentMode:(BOOL)expanded {
     %orig(expanded);
 
     if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
         if (!self.cowbellLabel) return;
 
-        if (expanded) {
-            self.cowbellLabel.hidden = YES;
-        } else {
-            // 切回一级菜单：直接解除隐藏，不触发 sizeToFit 打断系统原生转场缩放矩阵
-            self.cowbellLabel.hidden = NO;
-        }
+        [UIView animateWithDuration:0.25 animations:^{
+            self.cowbellLabel.alpha = expanded ? 0.0 : 1.0;
+        }];
     }
 }
 
