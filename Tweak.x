@@ -7,138 +7,113 @@
 
 extern NSString* const kCAFilterDestOut;
 
-// 1. 补全 CALayer 私有属性接口（彻底解决编译报错）
 @interface CALayer (Private)
 @property (nonatomic, retain) NSString *compositingFilter;
 @property (nonatomic, assign) BOOL allowsGroupOpacity;
 @property (nonatomic, assign) BOOL allowsGroupBlending;
 @end
 
-@interface CCUICAPackageView : UIView
+// iOS 16 控制中心模块容器类
+@interface CCUIContentModuleContainerViewController : UIViewController
+@property (nonatomic, readonly, copy) NSString *moduleIdentifier;
+@property (nonatomic, retain) UILabel *cowbellLabel;
 @end
 
-@interface CCUILowPowerModuleViewController : UIViewController
-@property (nonatomic, retain) UILabel *percentLabel;
-- (BOOL)isSelected;
-@end
-
-// 动态计算电池内部 CAPackage/ShapeLayer 的填充宽度与颜色
-static void updateBatteryPackageView(UIView *view, float batteryLevel, BOOL isSelected) {
+// 驱动系统原生 PackageView 的 CoreAnimation 时间轴，实现 Live Battery Indicator
+static void updateLiveBatteryPackage(UIView *view, float batteryLevel) {
     if (!view) return;
 
     if ([NSStringFromClass([view class]) containsString:@"CCUICAPackageView"]) {
-        int battery = (int)round(batteryLevel * 100);
+        CALayer *packageLayer = view.layer;
 
-        // 遍历 Package 内部的 CAShapeLayer 图层（电池芯）
-        NSMutableArray *nodes = [NSMutableArray arrayWithObject:view.layer];
-        while (nodes.count > 0) {
-            CALayer *layer = [nodes firstObject];
-            [nodes removeObjectAtIndex:0];
+        // 递归遍历 PackageView 图层中的所有 KeyframeAnimation 和 Sublayer
+        // 冻结动画 speed = 0，将 timeOffset 锁定在 batteryLevel (0.0 ~ 1.0) 对应的百分比位置
+        NSMutableArray *layers = [NSMutableArray arrayWithObject:packageLayer];
+        while (layers.count > 0) {
+            CALayer *l = [layers firstObject];
+            [nodesOrLayers removeObjectAtIndex:0]; // 清理队列
 
-            NSString *layerName = layer.name ?: @"";
+            l.speed = 0.0;
+            l.timeOffset = (CFTimeInterval)batteryLevel;
 
-            // 匹配电池填充芯的图层名称
-            if ([layerName containsString:@"Fill"] || [layerName containsString:@"fill"] || [layerName containsString:@"Level"]) {
-                // A. 改变填充长度（容量跟着变）
-                CGFloat maxW = layer.superlayer ? layer.superlayer.bounds.size.width : layer.bounds.size.width;
-                if (maxW > 0) {
-                    CGRect f = layer.frame;
-                    f.size.width = maxW * batteryLevel;
-                    layer.frame = f;
-                }
-
-                // B. 低于等于 20% 且未开启低电量模式时，强行染红
-                if ([layer isKindOfClass:[CAShapeLayer class]]) {
-                    CAShapeLayer *shapeLayer = (CAShapeLayer *)layer;
-                    if (isSelected) {
-                        shapeLayer.fillColor = [UIColor systemYellowColor].CGColor;
-                    } else if (battery <= 20) {
-                        shapeLayer.fillColor = [UIColor systemRedColor].CGColor;
-                    } else {
-                        shapeLayer.fillColor = [UIColor whiteColor].CGColor;
-                    }
-                }
-            }
-
-            if (layer.sublayers) {
-                [nodes addObjectsFromArray:layer.sublayers];
+            if (l.sublayers) {
+                [layers addObjectsFromArray:l.sublayers];
             }
         }
         return;
     }
 
     for (UIView *subview in view.subviews) {
-        updateBatteryPackageView(subview, batteryLevel, isSelected);
+        updateLiveBatteryPackage(subview, batteryLevel);
     }
 }
 
-%hook CCUILowPowerModuleViewController
-%property (nonatomic, retain) UILabel *percentLabel;
+%hook CCUIContentModuleContainerViewController
+%property (nonatomic, retain) UILabel *cowbellLabel;
 
 - (void)viewDidLoad {
     %orig;
 
-    [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+    // 1. 精准锁定低电量控制模块
+    if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
+        [UIDevice currentDevice].batteryMonitoringEnabled = YES;
 
-    if (!self.percentLabel) {
-        UILabel *label = [[UILabel alloc] init];
-        label.textColor = [UIColor whiteColor];
-        label.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
-        
-        // 避开直接调用私有属性，也可直接设置
-        label.layer.allowsGroupBlending = NO;
-        label.layer.allowsGroupOpacity = YES;
+        // 2. 初始化原版 Cowbell 百分比 Label
+        if (!self.cowbellLabel) {
+            UILabel *label = [[UILabel alloc] init];
+            label.textColor = [UIColor whiteColor];
+            label.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
+            label.textAlignment = NSTextAlignmentCenter;
+            
+            label.layer.allowsGroupBlending = NO;
+            label.layer.allowsGroupOpacity = YES;
 
-        [self.view addSubview:label];
-        self.percentLabel = label;
+            [self.view addSubview:label];
+            self.cowbellLabel = label;
+        }
     }
 }
 
 - (void)viewDidLayoutSubviews {
     %orig;
 
-    if (self.percentLabel) {
+    if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"] && self.cowbellLabel) {
+        
+        // 3. 动态获取实时电量
         float level = [[UIDevice currentDevice] batteryLevel];
         float safeLevel = (level < 0) ? 1.0 : level;
         int battery = (int)round(safeLevel * 100);
 
-        // 设置百分比文本
-        self.percentLabel.text = [NSString stringWithFormat:@"%i%%", battery];
-        [self.percentLabel sizeToFit];
+        // 刷新百分比数字
+        self.cowbellLabel.text = [NSString stringWithFormat:@"%i%%", battery];
+        [self.cowbellLabel sizeToFit];
 
+        // 置顶防止遮挡
+        [self.view bringSubviewToFront:self.cowbellLabel];
+
+        // 计算布局坐标（居中挂在 70% 高度处）
         CGFloat viewW = self.view.bounds.size.width > 0 ? self.view.bounds.size.width : 72.0;
         CGFloat viewH = self.view.bounds.size.height > 0 ? self.view.bounds.size.height : 72.0;
-        CGFloat labelW = self.percentLabel.frame.size.width;
-        CGFloat labelH = self.percentLabel.frame.size.height;
+        CGFloat labelW = self.cowbellLabel.frame.size.width;
+        CGFloat labelH = self.cowbellLabel.frame.size.height;
 
-        // 放在电池图标正下方 0.70 位置
-        self.percentLabel.frame = CGRectMake(
+        self.cowbellLabel.frame = CGRectMake(
             (viewW - labelW) / 2.0,
-            viewH * 0.70,
+            viewH * 0.70 - (labelH / 2.0),
             labelW,
             labelH
         );
 
-        BOOL selected = NO;
-        if ([self respondsToSelector:@selector(isSelected)]) {
-            selected = [self isSelected];
-        }
-
-        // 处理文字颜色与 GPU 镂空
-        if (selected) {
-            self.percentLabel.textColor = [UIColor whiteColor];
-            self.percentLabel.layer.compositingFilter = kCAFilterDestOut;
+        // 4. 处理低电量模式开启时的“镂空反色”
+        BOOL isLPMOn = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
+        if (isLPMOn) {
+            self.cowbellLabel.layer.compositingFilter = kCAFilterDestOut;
         } else {
-            self.percentLabel.layer.compositingFilter = nil;
-            if (battery <= 20) {
-                self.percentLabel.textColor = [UIColor systemRedColor];
-            } else {
-                self.percentLabel.textColor = [UIColor whiteColor];
-            }
+            self.cowbellLabel.layer.compositingFilter = nil;
         }
 
-        // 驱动原生 CAPackageView 图标的填充长度与颜色
-        updateBatteryPackageView(self.view, safeLevel, selected);
+        // 5. 复刻 Live Battery Indicator：驱动系统原生电池图标的填充柱
+        updateLiveBatteryPackage(self.view, safeLevel);
     }
 }
 
