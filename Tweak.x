@@ -25,36 +25,51 @@
 
     if (!self.cowbellLabel) return;
 
-    // 1. 读取电量
+    CGFloat viewW = self.view.bounds.size.width;
+    CGFloat viewH = self.view.bounds.size.height;
+
+    // 关键防御 1：当容器高度大于 90 时（说明正在展开或已在顶部），直接强制隐藏并中断，绝不在顶部渲染，解决飞到灵动岛的问题
+    BOOL isExpandedState = NO;
+    if ([self respondsToSelector:@selector(isExpanded)]) {
+        isExpandedState = self.expanded;
+    }
+
+    if (isExpandedState || viewH > 90.0 || viewW > 90.0) {
+        self.cowbellLabel.hidden = YES;
+        return;
+    }
+
+    // 读取电量
     float level = [[UIDevice currentDevice] batteryLevel];
     float safeLevel = (level < 0) ? 1.0 : level;
     int battery = (int)round(safeLevel * 100);
     self.cowbellLabel.text = [NSString stringWithFormat:@"%i%%", battery];
 
-    // 2. 读取低电量模式，同步文字颜色（黑/白）
+    // 读取系统低电量模式状态切颜色
     BOOL isLPMOn = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
     self.cowbellLabel.textColor = isLPMOn ? [UIColor blackColor] : [UIColor whiteColor];
 
-    // 3. 计算 Frame（保持标准 72x72 一级菜单布局比例）
-    [self.cowbellLabel sizeToFit];
+    // 禁用隐式动画更新 Frame，防止点击时产生位移飞跃
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
 
-    CGFloat viewW = self.view.bounds.size.width > 0 ? self.view.bounds.size.width : 72.0;
-    CGFloat viewH = self.view.bounds.size.height > 0 ? self.view.bounds.size.height : 72.0;
-    
-    // 防御：如果是展开的大卡片状态，强制按 72.0 的比例去算绝对位置
-    if (viewH > 100.0) {
-        viewH = 72.0;
-    }
+    [self.cowbellLabel sizeToFit];
 
     CGFloat labelW = self.cowbellLabel.frame.size.width;
     CGFloat labelH = self.cowbellLabel.frame.size.height;
 
+    // 垂直居中于图标下方
     self.cowbellLabel.frame = CGRectMake(
         (viewW - labelW) / 2.0,
-        viewH * 0.72 - (labelH / 2.0),
+        viewH * 0.63 - (labelH / 2.0),
         labelW,
         labelH
     );
+
+    [CATransaction commit];
+
+    // 处于正常一级卡片状态下恢复显示
+    self.cowbellLabel.hidden = NO;
 }
 
 - (void)viewDidLoad {
@@ -105,19 +120,11 @@
     %orig;
 
     if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
-        // 如果未处于展开状态，正常刷新
-        BOOL isExpandedState = NO;
-        if ([self respondsToSelector:@selector(isExpanded)]) {
-            isExpandedState = self.expanded;
-        }
-        
-        if (!isExpandedState) {
-            [self updateCowbellState];
-        }
+        [self updateCowbellState];
     }
 }
 
-// 核心修复：借用 UIViewControllerTransitionCoordinator 保证转场动画百分百同步
+// 关键防御 2：同步转场生命周期
 - (void)willTransitionToExpandedContentMode:(BOOL)expanded {
     %orig(expanded);
 
@@ -125,21 +132,17 @@
         if (!self.cowbellLabel) return;
 
         if (expanded) {
-            // 展开二级菜单：立即彻底隐藏
+            // 展开瞬间立刻隐形，禁止跟随系统 CoreAnimation 动画飞到灵动岛
             self.cowbellLabel.hidden = YES;
-            self.cowbellLabel.alpha = 0.0;
         } else {
-            // 切回一级菜单：在动画启动的第一时间计算 Frame，并随转场动画同步淡入恢复
-            [self updateCowbellState];
-            self.cowbellLabel.hidden = NO;
-
+            // 收起切回一级菜单：在转场 Block 内解除隐藏，让 Layer 直接绑定系统的缩放动画一同显示
             id<UIViewControllerTransitionCoordinator> coordinator = self.transitionCoordinator;
             if (coordinator) {
                 [coordinator animateAlongsideTransition:^(id<UIViewControllerTransitionCoordinatorContext> context) {
-                    self.cowbellLabel.alpha = 1.0;
+                    [self updateCowbellState];
                 } completion:nil];
             } else {
-                self.cowbellLabel.alpha = 1.0;
+                [self updateCowbellState];
             }
         }
     }
