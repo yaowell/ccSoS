@@ -121,7 +121,7 @@ extern NSString* const kCAFilterDestOut;
         if (!self.cowbellLabel || !self.bottomConstraint) return;
 
         // 展开时把底部距离往上推到大电池下方 (-138.0)，收起时恢复原位 (-6.0)
-        self.bottomConstraint.constant = expanded ? -138.0 : -6.0;
+        self.bottomConstraint.constant = expanded ? -50.0 : -6.0;
 
         [UIView animateWithDuration:0.25 animations:^{
             [self.view layoutIfNeeded];
