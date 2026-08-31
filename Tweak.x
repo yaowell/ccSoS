@@ -7,54 +7,68 @@
 
 extern NSString* const kCAFilterDestOut;
 
+// 1. 补全 CALayer 私有属性接口（彻底解决编译报错）
+@interface CALayer (Private)
+@property (nonatomic, retain) NSString *compositingFilter;
+@property (nonatomic, assign) BOOL allowsGroupOpacity;
+@property (nonatomic, assign) BOOL allowsGroupBlending;
+@end
+
 @interface CCUICAPackageView : UIView
-@property (nonatomic, copy) NSString *stateName;
-- (void)setStateName:(NSString *)stateName;
 @end
 
 @interface CCUILowPowerModuleViewController : UIViewController
 @property (nonatomic, retain) UILabel *percentLabel;
-- (void)refreshState;
 - (BOOL)isSelected;
 @end
 
-// 驱动 iOS 16 原生电池 CAPackageView 图层：变色与容量控制
-static void updateBatteryViewProperties(UIView *view, float batteryLevel, BOOL isSelected) {
+// 动态计算电池内部 CAPackage/ShapeLayer 的填充宽度与颜色
+static void updateBatteryPackageView(UIView *view, float batteryLevel, BOOL isSelected) {
     if (!view) return;
 
     if ([NSStringFromClass([view class]) containsString:@"CCUICAPackageView"]) {
-        CCUICAPackageView *packageView = (CCUICAPackageView *)view;
         int battery = (int)round(batteryLevel * 100);
 
-        // 1. 拦截低电量（<=20%）未开启状态，强制染红
-        if (!isSelected && battery <= 20) {
-            packageView.tintColor = [UIColor systemRedColor];
-            
-            // 深入 CALayer 图层修改 CAShapeLayer 填充色为红色
-            NSMutableArray *nodes = [NSMutableArray arrayWithObject:packageView.layer];
-            while (nodes.count > 0) {
-                CALayer *layer = [nodes firstObject];
-                [nodes removeObjectAtIndex:0];
-                
-                if ([layer isKindOfClass:[CAShapeLayer class]]) {
-                    ((CAShapeLayer *)layer).fillColor = [UIColor systemRedColor].CGColor;
+        // 遍历 Package 内部的 CAShapeLayer 图层（电池芯）
+        NSMutableArray *nodes = [NSMutableArray arrayWithObject:view.layer];
+        while (nodes.count > 0) {
+            CALayer *layer = [nodes firstObject];
+            [nodes removeObjectAtIndex:0];
+
+            NSString *layerName = layer.name ?: @"";
+
+            // 匹配电池填充芯的图层名称
+            if ([layerName containsString:@"Fill"] || [layerName containsString:@"fill"] || [layerName containsString:@"Level"]) {
+                // A. 改变填充长度（容量跟着变）
+                CGFloat maxW = layer.superlayer ? layer.superlayer.bounds.size.width : layer.bounds.size.width;
+                if (maxW > 0) {
+                    CGRect f = layer.frame;
+                    f.size.width = maxW * batteryLevel;
+                    layer.frame = f;
                 }
-                if (layer.sublayers) {
-                    [nodes addObjectsFromArray:layer.sublayers];
+
+                // B. 低于等于 20% 且未开启低电量模式时，强行染红
+                if ([layer isKindOfClass:[CAShapeLayer class]]) {
+                    CAShapeLayer *shapeLayer = (CAShapeLayer *)layer;
+                    if (isSelected) {
+                        shapeLayer.fillColor = [UIColor systemYellowColor].CGColor;
+                    } else if (battery <= 20) {
+                        shapeLayer.fillColor = [UIColor systemRedColor].CGColor;
+                    } else {
+                        shapeLayer.fillColor = [UIColor whiteColor].CGColor;
+                    }
                 }
             }
-        } else {
-            packageView.tintColor = nil;
-        }
 
-        // 2. 容量跟随：针对内部 Fill 图层改变 scale.x，或给 PackageView 整体微调
-        CALayer *packageLayer = packageView.layer;
-        packageLayer.anchorPoint = CGPointMake(0.5, 0.5);
+            if (layer.sublayers) {
+                [nodes addObjectsFromArray:layer.sublayers];
+            }
+        }
         return;
     }
 
     for (UIView *subview in view.subviews) {
-        updateBatteryViewProperties(subview, batteryLevel, isSelected);
+        updateBatteryPackageView(subview, batteryLevel, isSelected);
     }
 }
 
@@ -66,14 +80,15 @@ static void updateBatteryViewProperties(UIView *view, float batteryLevel, BOOL i
 
     [UIDevice currentDevice].batteryMonitoringEnabled = YES;
 
-    // 强行注入 Cowbell 百分比文本
     if (!self.percentLabel) {
         UILabel *label = [[UILabel alloc] init];
         label.textColor = [UIColor whiteColor];
         label.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
+        
+        // 避开直接调用私有属性，也可直接设置
         label.layer.allowsGroupBlending = NO;
         label.layer.allowsGroupOpacity = YES;
-        
+
         [self.view addSubview:label];
         self.percentLabel = label;
     }
@@ -87,7 +102,7 @@ static void updateBatteryViewProperties(UIView *view, float batteryLevel, BOOL i
         float safeLevel = (level < 0) ? 1.0 : level;
         int battery = (int)round(safeLevel * 100);
 
-        // 刷新电量文字
+        // 设置百分比文本
         self.percentLabel.text = [NSString stringWithFormat:@"%i%%", battery];
         [self.percentLabel sizeToFit];
 
@@ -96,7 +111,7 @@ static void updateBatteryViewProperties(UIView *view, float batteryLevel, BOOL i
         CGFloat labelW = self.percentLabel.frame.size.width;
         CGFloat labelH = self.percentLabel.frame.size.height;
 
-        // 放在电池图标下方的 0.70 黄金位置
+        // 放在电池图标正下方 0.70 位置
         self.percentLabel.frame = CGRectMake(
             (viewW - labelW) / 2.0,
             viewH * 0.70,
@@ -104,34 +119,26 @@ static void updateBatteryViewProperties(UIView *view, float batteryLevel, BOOL i
             labelH
         );
 
-        // 刷新电池填充条状态
-        BOOL selected = NO;
-        if ([self respondsToSelector:@selector(isSelected)]) {
-            selected = [self isSelected];
-        }
-        updateBatteryViewProperties(self.view, safeLevel, selected);
-    }
-}
-
-- (void)refreshState {
-    %orig;
-
-    if (self.percentLabel) {
         BOOL selected = NO;
         if ([self respondsToSelector:@selector(isSelected)]) {
             selected = [self isSelected];
         }
 
-        // 切换 GPU 镂空滤镜
+        // 处理文字颜色与 GPU 镂空
         if (selected) {
+            self.percentLabel.textColor = [UIColor whiteColor];
             self.percentLabel.layer.compositingFilter = kCAFilterDestOut;
         } else {
             self.percentLabel.layer.compositingFilter = nil;
+            if (battery <= 20) {
+                self.percentLabel.textColor = [UIColor systemRedColor];
+            } else {
+                self.percentLabel.textColor = [UIColor whiteColor];
+            }
         }
 
-        float level = [[UIDevice currentDevice] batteryLevel];
-        float safeLevel = (level < 0) ? 1.0 : level;
-        updateBatteryViewProperties(self.view, safeLevel, selected);
+        // 驱动原生 CAPackageView 图标的填充长度与颜色
+        updateBatteryPackageView(self.view, safeLevel, selected);
     }
 }
 
