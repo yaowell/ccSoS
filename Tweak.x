@@ -13,25 +13,34 @@ extern NSString* const kCAFilterDestOut;
 @property (nonatomic, assign) BOOL allowsGroupBlending;
 @end
 
+@interface CCUICAPackageView : UIView
+- (void)setStateName:(NSString *)stateName;
+- (void)setPropertyValue:(id)value forKeyPath:(NSString *)keyPath;
+@end
+
 // iOS 16 控制中心模块容器类
 @interface CCUIContentModuleContainerViewController : UIViewController
 @property (nonatomic, readonly, copy) NSString *moduleIdentifier;
 @property (nonatomic, retain) UILabel *cowbellLabel;
 @end
 
-// 驱动系统原生 PackageView 的 CoreAnimation 时间轴，实现 Live Battery Indicator
+// 驱动系统原生 CCUICAPackageView，实现 Live Battery Indicator (电量实时随动)
 static void updateLiveBatteryPackage(UIView *view, float batteryLevel) {
     if (!view) return;
 
     if ([NSStringFromClass([view class]) containsString:@"CCUICAPackageView"]) {
-        CALayer *packageLayer = view.layer;
+        CCUICAPackageView *packageView = (CCUICAPackageView *)view;
+        
+        // 1. 尝试直接驱动系统 PackageView 的 KeyPath 状态
+        [packageView setPropertyValue:@(batteryLevel) forKeyPath:@"batteryLevel"];
+        [packageView setPropertyValue:@(batteryLevel) forKeyPath:@"level"];
 
-        // 递归遍历 PackageView 图层中的所有 KeyframeAnimation 和 Sublayer
-        // 冻结动画 speed = 0，将 timeOffset 锁定在 batteryLevel (0.0 ~ 1.0) 对应的百分比位置
+        // 2. CoreAnimation 图层时间轴备用锁定方案
+        CALayer *packageLayer = view.layer;
         NSMutableArray *layers = [NSMutableArray arrayWithObject:packageLayer];
         while (layers.count > 0) {
             CALayer *l = [layers firstObject];
-            [nodesOrLayers removeObjectAtIndex:0]; // 清理队列
+            [layers removeObjectAtIndex:0]; // 已修正变量名错误
 
             l.speed = 0.0;
             l.timeOffset = (CFTimeInterval)batteryLevel;
@@ -54,11 +63,9 @@ static void updateLiveBatteryPackage(UIView *view, float batteryLevel) {
 - (void)viewDidLoad {
     %orig;
 
-    // 1. 精准锁定低电量控制模块
     if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
         [UIDevice currentDevice].batteryMonitoringEnabled = YES;
 
-        // 2. 初始化原版 Cowbell 百分比 Label
         if (!self.cowbellLabel) {
             UILabel *label = [[UILabel alloc] init];
             label.textColor = [UIColor whiteColor];
@@ -79,19 +86,16 @@ static void updateLiveBatteryPackage(UIView *view, float batteryLevel) {
 
     if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"] && self.cowbellLabel) {
         
-        // 3. 动态获取实时电量
         float level = [[UIDevice currentDevice] batteryLevel];
         float safeLevel = (level < 0) ? 1.0 : level;
         int battery = (int)round(safeLevel * 100);
 
-        // 刷新百分比数字
+        // 1. 刷新百分比
         self.cowbellLabel.text = [NSString stringWithFormat:@"%i%%", battery];
         [self.cowbellLabel sizeToFit];
 
-        // 置顶防止遮挡
         [self.view bringSubviewToFront:self.cowbellLabel];
 
-        // 计算布局坐标（居中挂在 70% 高度处）
         CGFloat viewW = self.view.bounds.size.width > 0 ? self.view.bounds.size.width : 72.0;
         CGFloat viewH = self.view.bounds.size.height > 0 ? self.view.bounds.size.height : 72.0;
         CGFloat labelW = self.cowbellLabel.frame.size.width;
@@ -104,7 +108,7 @@ static void updateLiveBatteryPackage(UIView *view, float batteryLevel) {
             labelH
         );
 
-        // 4. 处理低电量模式开启时的“镂空反色”
+        // 2. 镂空反色
         BOOL isLPMOn = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
         if (isLPMOn) {
             self.cowbellLabel.layer.compositingFilter = kCAFilterDestOut;
@@ -112,7 +116,7 @@ static void updateLiveBatteryPackage(UIView *view, float batteryLevel) {
             self.cowbellLabel.layer.compositingFilter = nil;
         }
 
-        // 5. 复刻 Live Battery Indicator：驱动系统原生电池图标的填充柱
+        // 3. 复刻 Live Battery Indicator 实时动画
         updateLiveBatteryPackage(self.view, safeLevel);
     }
 }
