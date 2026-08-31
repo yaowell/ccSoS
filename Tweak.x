@@ -13,14 +13,13 @@ extern NSString* const kCAFilterDestOut;
 @interface CCUIContentModuleContainerViewController : UIViewController
 @property (nonatomic, readonly, copy) NSString *moduleIdentifier;
 @property (nonatomic, retain) UILabel *cowbellLabel;
-@property (nonatomic, retain) NSLayoutConstraint *bottomConstraint; // 声明底部约束引用
+@property (nonatomic, readonly, assign, getter=isExpanded) BOOL expanded;
 - (UIView *)contentView;
 - (void)updateCowbellState;
 @end
 
 %hook CCUIContentModuleContainerViewController
 %property (nonatomic, retain) UILabel *cowbellLabel;
-%property (nonatomic, retain) NSLayoutConstraint *bottomConstraint;
 
 %new
 - (void)updateCowbellState {
@@ -39,7 +38,7 @@ extern NSString* const kCAFilterDestOut;
     int battery = (int)round(safeLevel * 100);
     self.cowbellLabel.text = [NSString stringWithFormat:@"%i%%", battery];
 
-    // 2. 状态变色（防止纯镂空在特定背景下识别度低）
+    // 2. 状态变色
     BOOL isLPMOn = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
     self.cowbellLabel.textColor = isLPMOn ? [UIColor blackColor] : [UIColor whiteColor];
 }
@@ -67,21 +66,45 @@ extern NSString* const kCAFilterDestOut;
             label.backgroundColor = [UIColor clearColor];
             label.textColor = [UIColor whiteColor];
 
-            // 保持 Cowbell 灵魂镂空
             CAFilter *filter = [CAFilter filterWithType:kCAFilterDestOut];
             label.layer.filters = @[filter];
 
-            // 开启 AutoLayout，废弃绝对坐标计算
-            label.translatesAutoresizingMaskIntoConstraints = NO;
             [targetContainer addSubview:label];
             self.cowbellLabel = label;
+        }
 
-            // 保存 bottomConstraint 引用，方便转场时动态修改数值
-            NSLayoutConstraint *centerX = [label.centerXAnchor constraintEqualToAnchor:targetContainer.centerXAnchor];
-            NSLayoutConstraint *bottom = [label.bottomAnchor constraintEqualToAnchor:targetContainer.bottomAnchor constant:-6.0];
+        if (self.cowbellLabel) {
+            BOOL isExpandedState = NO;
+            if ([self respondsToSelector:@selector(isExpanded)]) {
+                isExpandedState = self.expanded;
+            }
 
-            self.bottomConstraint = bottom;
-            [NSLayoutConstraint activateConstraints:@[centerX, bottom]];
+            CGFloat containerW = targetContainer.bounds.size.width;
+            CGFloat containerH = targetContainer.bounds.size.height;
+
+            [self.cowbellLabel sizeToFit];
+            CGFloat labelW = self.cowbellLabel.frame.size.width;
+            CGFloat labelH = self.cowbellLabel.frame.size.height;
+
+            if (isExpandedState || containerH > 200.0) {
+                // 二级展开状态：把文字强行放在顶部大电池正下方（Y轴设为 82）
+                self.cowbellLabel.translatesAutoresizingMaskIntoConstraints = YES;
+                self.cowbellLabel.frame = CGRectMake(
+                    (containerW - labelW) / 2.0,
+                    82.0, // 此处即为大电池下方的位置
+                    labelW,
+                    labelH
+                );
+            } else {
+                // 一级小卡片状态：强行放置在底部
+                self.cowbellLabel.translatesAutoresizingMaskIntoConstraints = YES;
+                self.cowbellLabel.frame = CGRectMake(
+                    (containerW - labelW) / 2.0,
+                    containerH - labelH - 6.0,
+                    labelW,
+                    labelH
+                );
+            }
         }
 
         [self updateCowbellState];
@@ -110,22 +133,6 @@ extern NSString* const kCAFilterDestOut;
         NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
         [nc removeObserver:self name:NSProcessInfoPowerStateDidChangeNotification object:nil];
         [nc removeObserver:self name:UIDeviceBatteryLevelDidChangeNotification object:nil];
-    }
-}
-
-// 展开/收起转场时，平滑拉动位置并配合淡入淡出，保持原本完美的缩放跟手感
-- (void)willTransitionToExpandedContentMode:(BOOL)expanded {
-    %orig(expanded);
-
-    if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
-        if (!self.cowbellLabel || !self.bottomConstraint) return;
-
-        // 展开时把底部距离往上推到大电池下方 (-138.0)，收起时恢复原位 (-6.0)
-        self.bottomConstraint.constant = expanded ? -50.0 : -6.0;
-
-        [UIView animateWithDuration:0.25 animations:^{
-            [self.view layoutIfNeeded];
-        }];
     }
 }
 
