@@ -19,6 +19,9 @@ extern NSString* const kCAFilterDestOut;
 - (void)updateCowbellState;
 @end
 
+@interface CCUIToggleViewController : UIViewController
+@end
+
 %hook CCUIContentModuleContainerViewController
 %property (nonatomic, retain) UILabel *cowbellLabel;
 
@@ -26,14 +29,14 @@ extern NSString* const kCAFilterDestOut;
 - (void)updateCowbellState {
     if (!self.cowbellLabel) return;
 
-    // 1. 二级菜单展开时隐形，防止布局错位
+    // 1. 二级菜单展开时直接隐藏，防止布局错位
     if (self.isExpanded) {
         self.cowbellLabel.hidden = YES;
         return;
     }
     self.cowbellLabel.hidden = NO;
 
-    // 2. 读取电量
+    // 2. 读取当前电量
     float level = [[UIDevice currentDevice] batteryLevel];
     float safeLevel = (level < 0) ? 1.0 : level;
     int battery = (int)round(safeLevel * 100);
@@ -42,7 +45,7 @@ extern NSString* const kCAFilterDestOut;
     [self.cowbellLabel sizeToFit];
     [self.view bringSubviewToFront:self.cowbellLabel];
 
-    // 3. 禁用隐式动画，防止切回一级菜单时文字“飞跃”
+    // 3. 禁用隐式动画，解决切回一级菜单时文字“飞跃”
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
 
@@ -58,7 +61,7 @@ extern NSString* const kCAFilterDestOut;
         labelH
     );
 
-    // 4. 根据当前系统低电量状态实时切换 GPU 镂空滤镜
+    // 4. 根据低电量模式实时切换 GPU 镂空滤镜
     BOOL isLPMOn = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
     self.cowbellLabel.layer.compositingFilter = isLPMOn ? kCAFilterDestOut : nil;
 
@@ -93,19 +96,7 @@ extern NSString* const kCAFilterDestOut;
     }
 }
 
-// 关键点 1：Hook 容器的选中状态切换（点击开关时系统会触发此方法）
-- (void)setSelected:(BOOL)selected {
-    %orig(selected);
-
-    if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
-        // 主线程微延时，等待系统切换完低电量状态后立刻更新滤镜
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self updateCowbellState];
-        });
-    }
-}
-
-// 关键点 2：响应二级菜单展开与收起
+// 响应二级菜单展开与收起
 - (void)willTransitionToExpandedContentMode:(BOOL)expanded {
     %orig(expanded);
 
@@ -115,6 +106,26 @@ extern NSString* const kCAFilterDestOut;
             if (!expanded) {
                 [self updateCowbellState];
             }
+        }
+    }
+}
+
+%end
+
+// 核心修复：直接 Hook 按钮本身的刷新函数
+%hook CCUIToggleViewController
+
+- (void)refreshState {
+    %orig;
+
+    // 当按钮触发刷新时，向上找到容器 VC 并主动更新滤镜
+    UIViewController *parentVC = self.parentViewController;
+    if ([parentVC isKindOfClass:NSClassFromString(@"CCUIContentModuleContainerViewController")]) {
+        CCUIContentModuleContainerViewController *containerVC = (CCUIContentModuleContainerViewController *)parentVC;
+        if ([containerVC.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [containerVC updateCowbellState];
+            });
         }
     }
 }
