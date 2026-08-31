@@ -3,7 +3,6 @@
 @interface CCUIContentModuleContainerView : UIView
 @end
 
-// 收集 3 层以内的核心 View 信息
 static void collectHierarchy(UIView *view, int depth, NSMutableString *result) {
     if (!view || depth > 3) return;
     
@@ -33,7 +32,16 @@ static BOOL hasShownAlert = NO;
         collectHierarchy(self, 0, hierarchyText);
         
         dispatch_async(dispatch_get_main_queue(), ^{
-            UIViewController *rootVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+            UIWindow *window = nil;
+            for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+                if (scene.activationState == UISceneActivationStateForegroundActive && [scene isKindOfClass:[UIWindowScene class]]) {
+                    window = ((UIWindowScene *)scene).windows.firstObject;
+                    break;
+                }
+            }
+            if (!window) window = [UIApplication sharedApplication].windows.firstObject;
+
+            UIViewController *rootVC = window.rootViewController;
             while (rootVC.presentedViewController) {
                 rootVC = rootVC.presentedViewController;
             }
