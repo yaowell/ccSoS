@@ -1,105 +1,75 @@
 #import <UIKit/UIKit.h>
-#import <objc/runtime.h>
+#import <QuartzCore/QuartzCore.h>
 
-@interface CCUIContentModuleContainerView : UIView
-@property (nonatomic, strong) NSString *moduleIdentifier;
-@property (nonatomic, strong) UILabel *cbPercentLabel;
-- (void)cb_updatePercentText;
-- (BOOL)cb_isLowPowerModule;
+extern NSString* const kCAFilterDestOut;
+
+@interface CALayer (Private)
+@property (nonatomic, retain) NSString *compositingFilter;
+@property (nonatomic, assign) BOOL allowsGroupOpacity;
+@property (nonatomic, assign) BOOL allowsGroupBlending;
 @end
 
-%hook CCUIContentModuleContainerView
+@interface CCUIRoundButton : UIControl
+@property (nonatomic, retain) UILabel *cowbellLabel;
+@property (nonatomic, assign) BOOL isLowPowerModule;
+@end
 
-%property (nonatomic, strong) UILabel *cbPercentLabel;
+%hook CCUIRoundButton
+%property (nonatomic, retain) UILabel *cowbellLabel;
+%property (nonatomic, assign) BOOL isLowPowerModule;
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    id orig = %orig;
+    if (orig) {
+        // 延迟到下一个 Runloop 检查响应链，精准识别低电量模块，不走高频循环
+        dispatch_async(dispatch_get_main_queue(), ^{
+            for (UIResponder *responder = self; responder; responder = responder.nextResponder) {
+                NSString *clsName = NSStringFromClass([responder class]);
+                if ([clsName containsString:@"LowPower"]) {
+                    self.isLowPowerModule = YES;
+                    break;
+                }
+            }
+            
+            if (self.isLowPowerModule && !self.cowbellLabel) {
+                [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+
+                self.cowbellLabel = [[UILabel alloc] init];
+                self.cowbellLabel.textColor = [UIColor whiteColor];
+                self.cowbellLabel.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
+                
+                // 原版精髓：GPU 混合镂空
+                self.cowbellLabel.layer.allowsGroupBlending = NO;
+                self.cowbellLabel.layer.allowsGroupOpacity = YES;
+                self.cowbellLabel.layer.compositingFilter = kCAFilterDestOut;
+                
+                [self addSubview:self.cowbellLabel];
+                [self setNeedsLayout];
+            }
+        });
+    }
+    return orig;
+}
 
 - (void)layoutSubviews {
     %orig;
 
-    if (![self cb_isLowPowerModule]) {
-        if (self.cbPercentLabel) {
-            self.cbPercentLabel.hidden = YES;
-        }
-        return;
-    }
-
-    CGFloat width = self.bounds.size.width;
-    CGFloat height = self.bounds.size.height;
-
-    if (width <= 0 || height <= 0 || width > 100 || height > 100) return;
-
-    for (UIView *subview in self.subviews) {
-        if (subview != self.cbPercentLabel) {
-            subview.transform = CGAffineTransformIdentity;
-        }
-    }
-
-    if (!self.cbPercentLabel) {
-        UILabel *lab = [[UILabel alloc] initWithFrame:CGRectMake(0, height - 22, width, 12)];
-        lab.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
-        lab.textAlignment = NSTextAlignmentCenter;
-        lab.userInteractionEnabled = NO;
-
-        self.cbPercentLabel = lab;
-        [self addSubview:lab];
-
-        [UIDevice currentDevice].batteryMonitoringEnabled = YES;
-        
-        [[NSNotificationCenter defaultCenter] addObserver:self
-                                                 selector:@selector(cb_updatePercentText)
-                                                     name:UIDeviceBatteryLevelDidChangeNotification
-                                                   object:nil];
-                                                   
-        [[NSNotificationCenter defaultCenter] addObserver:self
-                                                 selector:@selector(cb_updatePercentText)
-                                                     name:NSProcessInfoPowerStateDidChangeNotification
-                                                   object:nil];
-    } else {
-        self.cbPercentLabel.hidden = NO;
-        self.cbPercentLabel.frame = CGRectMake(0, height - 22, width, 12);
-    }
-
-    [self bringSubviewToFront:self.cbPercentLabel];
-    [self cb_updatePercentText];
-}
-
-%new
-- (BOOL)cb_isLowPowerModule {
-    if ([self respondsToSelector:@selector(moduleIdentifier)]) {
-        NSString *modID = [self performSelector:@selector(moduleIdentifier)];
-        if ([modID isEqualToString:@"com.apple.control-center.LowPowerModule"] || 
-            [modID containsString:@"LowPowerModule"]) {
-            return YES;
-        }
-    }
-
-    UIResponder *responder = self;
-    while (responder) {
-        NSString *clsName = NSStringFromClass([responder class]);
-        if ([clsName containsString:@"CCUILowPowerModeModule"]) {
-            return YES;
-        }
-        responder = [responder nextResponder];
-    }
-
-    return NO;
-}
-
-%new
-- (void)cb_updatePercentText {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (!self.cbPercentLabel) return;
-
+    if (self.isLowPowerModule && self.cowbellLabel) {
         float level = [UIDevice currentDevice].batteryLevel;
-        int percent = (level >= 0) ? (int)round(level * 100.0f) : 100;
-        self.cbPercentLabel.text = [NSString stringWithFormat:@"%d%%", percent];
+        int battery = (level < 0) ? 100 : (int)round(level * 100);
 
-        BOOL isLowPowerMode = [NSProcessInfo processInfo].isLowPowerModeEnabled;
-        if (isLowPowerMode) {
-            self.cbPercentLabel.textColor = [UIColor blackColor];
-        } else {
-            self.cbPercentLabel.textColor = [UIColor whiteColor];
-        }
-    });
+        self.cowbellLabel.text = [NSString stringWithFormat:@"%i%%", battery];
+        [self.cowbellLabel sizeToFit];
+
+        // 放置在图标底部中央
+        CGFloat w = self.bounds.size.width;
+        CGFloat h = self.bounds.size.height;
+        self.cowbellLabel.center = CGPointMake(w / 2.0, h * 0.72);
+        
+        // 根据当前按钮选中状态动态切换滤镜
+        BOOL selected = self.selected;
+        self.cowbellLabel.layer.compositingFilter = selected ? kCAFilterDestOut : nil;
+    }
 }
 
 %end
