@@ -30,7 +30,7 @@ extern NSString* const kCAFilterDestOut;
     float safeLevel = (level < 0) ? 1.0 : level;
     int battery = (int)round(safeLevel * 100);
 
-    // 2. 刷新文本与布局（精准居中偏下，完美避开原生电池图标）
+    // 2. 刷新文本与位置（定位在按钮下半部分，避开中间的原生图标）
     self.cowbellLabel.text = [NSString stringWithFormat:@"%i%%", battery];
     [self.cowbellLabel sizeToFit];
     [self.view bringSubviewToFront:self.cowbellLabel];
@@ -47,7 +47,7 @@ extern NSString* const kCAFilterDestOut;
         labelH
     );
 
-    // 3. 原汁原味的 Cowbell 滤镜逻辑：开启低电量模式时 GPU 镂空，关闭时普通白色显示
+    // 3. 经典 Cowbell 混合滤镜：开启低电量模式时 GPU 镂空，关闭时普通白色
     BOOL isLPMOn = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
     if (isLPMOn) {
         self.cowbellLabel.layer.compositingFilter = kCAFilterDestOut;
@@ -76,11 +76,26 @@ extern NSString* const kCAFilterDestOut;
     }
 }
 
-- (void)viewWillAppear:(BOOL)animated {
+- (void)viewDidAppear:(BOOL)animated {
     %orig(animated);
 
     if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
+        // 绑定电量变化通知
+        [[NSNotificationCenter defaultCenter] removeObserver:self name:UIDeviceBatteryLevelDidChangeNotification object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self 
+                                                 selector:@selector(updateCowbellState) 
+                                                     name:UIDeviceBatteryLevelDidChangeNotification 
+                                                   object:nil];
         [self updateCowbellState];
+    }
+}
+
+- (void)viewDidDisappear:(BOOL)animated {
+    %orig(animated);
+
+    if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
+        // 出屏幕时解绑，零后台消耗
+        [[NSNotificationCenter defaultCenter] removeObserver:self name:UIDeviceBatteryLevelDidChangeNotification object:nil];
     }
 }
 
