@@ -19,9 +19,6 @@ extern NSString* const kCAFilterDestOut;
 - (void)updateCowbellState;
 @end
 
-@interface CCUIToggleViewController : UIViewController
-@end
-
 %hook CCUIContentModuleContainerViewController
 %property (nonatomic, retain) UILabel *cowbellLabel;
 
@@ -29,14 +26,14 @@ extern NSString* const kCAFilterDestOut;
 - (void)updateCowbellState {
     if (!self.cowbellLabel) return;
 
-    // 1. 二级菜单展开时直接隐藏，防止布局错位
+    // 1. 二级菜单展开时隐形
     if (self.isExpanded) {
         self.cowbellLabel.hidden = YES;
         return;
     }
     self.cowbellLabel.hidden = NO;
 
-    // 2. 读取当前电量
+    // 2. 获取电量
     float level = [[UIDevice currentDevice] batteryLevel];
     float safeLevel = (level < 0) ? 1.0 : level;
     int battery = (int)round(safeLevel * 100);
@@ -45,7 +42,7 @@ extern NSString* const kCAFilterDestOut;
     [self.cowbellLabel sizeToFit];
     [self.view bringSubviewToFront:self.cowbellLabel];
 
-    // 3. 禁用隐式动画，解决切回一级菜单时文字“飞跃”
+    // 3. 禁用隐式动画
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
 
@@ -61,7 +58,7 @@ extern NSString* const kCAFilterDestOut;
         labelH
     );
 
-    // 4. 根据低电量模式实时切换 GPU 镂空滤镜
+    // 4. 实时判定系统低电量状态并更新 GPU 滤镜
     BOOL isLPMOn = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
     self.cowbellLabel.layer.compositingFilter = isLPMOn ? kCAFilterDestOut : nil;
 
@@ -96,7 +93,6 @@ extern NSString* const kCAFilterDestOut;
     }
 }
 
-// 响应二级菜单展开与收起
 - (void)willTransitionToExpandedContentMode:(BOOL)expanded {
     %orig(expanded);
 
@@ -112,21 +108,26 @@ extern NSString* const kCAFilterDestOut;
 
 %end
 
-// 核心修复：直接 Hook 按钮本身的刷新函数
-%hook CCUIToggleViewController
+// 关键修复：直接 Hook 控制中心低电量 Module 自身的点击动作入口
+%hook CCUILowPowerModule
 
-- (void)refreshState {
-    %orig;
+- (void)setSelected:(BOOL)selected {
+    %orig(selected);
 
-    // 当按钮触发刷新时，向上找到容器 VC 并主动更新滤镜
-    UIViewController *parentVC = self.parentViewController;
+    // 点击发生的瞬间，通知容器 VC 主动刷新滤镜
+    UIViewController *contentVC = (UIViewController *)self;
+    UIViewController *parentVC = contentVC.parentViewController;
+
+    // 向上寻找 ContainerViewController
+    while (parentVC && ![parentVC isKindOfClass:NSClassFromString(@"CCUIContentModuleContainerViewController")]) {
+        parentVC = parentVC.parentViewController;
+    }
+
     if ([parentVC isKindOfClass:NSClassFromString(@"CCUIContentModuleContainerViewController")]) {
         CCUIContentModuleContainerViewController *containerVC = (CCUIContentModuleContainerViewController *)parentVC;
-        if ([containerVC.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [containerVC updateCowbellState];
-            });
-        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [containerVC updateCowbellState];
+        });
     }
 }
 
