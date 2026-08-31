@@ -1,192 +1,236 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
+#import <objc/runtime.h>
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
-extern NSString* const kCAFilterDestOut;
+extern NSString *const kCAFilterDestOut;
+
+
+/*
+ ============================================================
+                    CAFilter
+ ============================================================
+ */
 
 @interface CAFilter : NSObject
 + (instancetype)filterWithType:(NSString *)type;
 @end
 
-@interface CCUIContentModuleContainerViewController : UIViewController
 
-@property (nonatomic, readonly, copy) NSString *moduleIdentifier;
-@property (nonatomic, retain) UILabel *cowbellLabel;
+/*
+ ============================================================
+                  CCUICAPackageView
+ ============================================================
+ */
 
-@property (nonatomic, retain) NSLayoutConstraint *cowbellCollapsedTopConstraint;
-@property (nonatomic, retain) NSLayoutConstraint *cowbellExpandedTopConstraint;
+@interface CCUICAPackageView : UIView
 
-@property (nonatomic, assign) BOOL cowbellIsExpanded;
-
-- (UIView *)contentView;
-- (void)updateCowbellState;
+@property (nonatomic, copy) NSString *packageName;
 
 @end
 
 
-%hook CCUIContentModuleContainerViewController
+/*
+ ============================================================
+        Cowbell Percent Label Associated Object
+ ============================================================
+ */
 
-%property (nonatomic, retain) UILabel *cowbellLabel;
-%property (nonatomic, retain) NSLayoutConstraint *cowbellCollapsedTopConstraint;
-%property (nonatomic, retain) NSLayoutConstraint *cowbellExpandedTopConstraint;
-%property (nonatomic, assign) BOOL cowbellIsExpanded;
+static char kCowbellPercentLabelKey;
+static char kCowbellIsLowPowerKey;
 
 
 /*
  ============================================================
-                    Cowbell 位置参数
+                    位置参数
  ============================================================
 
- 一级菜单：
- 数字越大 = 百分比越往下
- 数字越小 = 百分比越往上
+ 一级菜单百分比位置：
 
- 二级菜单：
- 百分比最终完全隐藏。
+ 数字越大  -> 越往下
+ 数字越小  -> 越往上
 
- 一级位置单独控制，不影响二级隐藏逻辑。
+ 这个参数只负责百分比位置。
+
+ 不负责电池图标。
+ 不负责二级菜单。
  ============================================================
  */
 
-static CGFloat const COWBELL_COLLAPSED_OFFSET = 8.0;
-static CGFloat const COWBELL_EXPANDED_OFFSET = 20.0;
+static CGFloat const COWBELL_PERCENT_Y_OFFSET = 5.5;
 
 
 /*
  ============================================================
-                    更新电量百分比
+                  获取 Cowbell Label
  ============================================================
  */
 
-%new
-- (void)updateCowbellState {
+static UILabel *CowbellGetLabel(CCUICAPackageView *view) {
 
-    if (![NSThread isMainThread]) {
-
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self updateCowbellState];
-        });
-
-        return;
-    }
-
-    if (!self.cowbellLabel) return;
-
-
-    float level =
-        [[UIDevice currentDevice] batteryLevel];
-
-
-    float safeLevel =
-        (level < 0) ? 1.0 : level;
-
-
-    int battery =
-        (int)round(safeLevel * 100);
-
-
-    self.cowbellLabel.text =
-        [NSString stringWithFormat:@"%i%%", battery];
-
-
-    BOOL isLPMOn =
-        [[NSProcessInfo processInfo] isLowPowerModeEnabled];
-
-
-    self.cowbellLabel.textColor =
-        isLPMOn
-        ? [UIColor blackColor]
-        : [UIColor whiteColor];
+    return objc_getAssociatedObject(
+        view,
+        &kCowbellPercentLabelKey
+    );
 }
 
 
 /*
  ============================================================
-                        ViewDidLoad
+                判断是否为低电量模块
  ============================================================
  */
 
-- (void)viewDidLoad {
+static BOOL CowbellIsLowPowerPackage(CCUICAPackageView *view) {
 
-    %orig;
+    NSNumber *cached =
+        objc_getAssociatedObject(
+            view,
+            &kCowbellIsLowPowerKey
+        );
 
-
-    if ([self.moduleIdentifier
-         isEqualToString:
-         @"com.apple.control-center.LowPowerModule"]) {
-
-        [UIDevice currentDevice].batteryMonitoringEnabled = YES;
-
-        self.cowbellIsExpanded = NO;
-    }
-}
-
-
-/*
- ============================================================
-                     创建 Cowbell Label
- ============================================================
- */
-
-- (void)viewDidLayoutSubviews {
-
-    %orig;
-
-
-    if (![self.moduleIdentifier
-          isEqualToString:
-          @"com.apple.control-center.LowPowerModule"]) {
-
-        return;
+    if (cached) {
+        return cached.boolValue;
     }
 
 
-    UIView *targetContainer =
-        [self respondsToSelector:@selector(contentView)]
-        ? [self contentView]
-        : self.view;
-
-
-    if (!targetContainer) return;
+    BOOL matched = NO;
 
 
     /*
-     ========================================================
-                      第一次创建 Label
-     ========================================================
+     --------------------------------------------------------
+                    packageName 判断
+     --------------------------------------------------------
      */
 
-    if (!self.cowbellLabel) {
+    NSString *pkgName = @"";
 
-        UILabel *label =
-            [[UILabel alloc] init];
-
-
-        label.font =
-            [UIFont systemFontOfSize:10
-                              weight:UIFontWeightBold];
+    if ([view respondsToSelector:@selector(packageName)]) {
+        pkgName = view.packageName ?: @"";
+    }
 
 
-        label.textAlignment =
-            NSTextAlignmentCenter;
+    if ([pkgName containsString:@"LowPower"] ||
+        [pkgName containsString:@"Battery"]) {
+
+        matched = YES;
+    }
 
 
-        label.userInteractionEnabled = NO;
+    /*
+     --------------------------------------------------------
+                    responder 判断
+     --------------------------------------------------------
+     */
+
+    if (!matched) {
+
+        for (UIResponder *r = view;
+             r;
+             r = [r nextResponder]) {
+
+            NSString *cls =
+                NSStringFromClass([r class]);
 
 
-        label.backgroundColor =
-            [UIColor clearColor];
+            if ([cls containsString:@"Brightness"] ||
+                [cls containsString:@"Display"]) {
+
+                break;
+            }
 
 
-        label.textColor =
-            [UIColor whiteColor];
+            if ([cls containsString:@"LowPower"]) {
+
+                matched = YES;
+                break;
+            }
+        }
+    }
+
+
+    objc_setAssociatedObject(
+        view,
+        &kCowbellIsLowPowerKey,
+        @(matched),
+        OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    );
+
+
+    return matched;
+}
+
+
+/*
+ ============================================================
+                     刷新百分比
+ ============================================================
+ */
+
+static void CowbellUpdatePercent(CCUICAPackageView *view) {
+
+    if (!view) return;
+
+
+    UILabel *label =
+        CowbellGetLabel(view);
+
+
+    if (!label) return;
+
+
+    if (!label.window) return;
+
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+
+        if (!label.window) return;
+
+
+        if (!UIDevice.currentDevice.isBatteryMonitoringEnabled) {
+
+            UIDevice.currentDevice.batteryMonitoringEnabled = YES;
+        }
+
+
+        float level =
+            UIDevice.currentDevice.batteryLevel;
+
+
+        if (level < 0) {
+            level = 1.0f;
+        }
+
+
+        int percent =
+            (int)round(level * 100.0f);
+
+
+        label.text =
+            [NSString stringWithFormat:@"%d%%", percent];
 
 
         /*
          ----------------------------------------------------
-                       Cowbell 镂空效果
+                       低电量模式颜色
+         ----------------------------------------------------
+         */
+
+        BOOL lowPower =
+            [NSProcessInfo processInfo].isLowPowerModeEnabled;
+
+
+        label.textColor =
+            lowPower
+            ? [UIColor blackColor]
+            : [UIColor whiteColor];
+
+
+        /*
+         ----------------------------------------------------
+                         镂空
          ----------------------------------------------------
          */
 
@@ -198,218 +242,342 @@ static CGFloat const COWBELL_EXPANDED_OFFSET = 20.0;
             @[filter];
 
 
-        /*
-         ----------------------------------------------------
-                         AutoLayout
-         ----------------------------------------------------
-         */
-
-        label.translatesAutoresizingMaskIntoConstraints = NO;
+        [label setNeedsLayout];
+    });
+}
 
 
-        [targetContainer addSubview:label];
+/*
+ ============================================================
+                     创建百分比
+ ============================================================
+ */
+
+static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
+
+    UILabel *label =
+        CowbellGetLabel(view);
 
 
-        self.cowbellLabel = label;
+    if (label) {
+        return label;
+    }
 
 
-        /*
-         ====================================================
-                       一级菜单位置
-         ====================================================
-         */
-
-        self.cowbellCollapsedTopConstraint =
-            [label.topAnchor
-             constraintEqualToAnchor:
-             targetContainer.centerYAnchor
-             constant:COWBELL_COLLAPSED_OFFSET];
+    label =
+        [[UILabel alloc] init];
 
 
-        /*
-         ====================================================
-                       二级菜单位置
-         ====================================================
-
-         这个约束保留，只是为了保持原来的
-         一级 / 二级转场结构。
-
-         二级最终会完全隐藏。
-         ====================================================
-         */
-
-        self.cowbellExpandedTopConstraint =
-            [label.topAnchor
-             constraintEqualToAnchor:
-             targetContainer.centerYAnchor
-             constant:COWBELL_EXPANDED_OFFSET];
+    label.textAlignment =
+        NSTextAlignmentCenter;
 
 
-        /*
-         ====================================================
-                        默认一级菜单
-         ====================================================
-         */
-
-        self.cowbellCollapsedTopConstraint.active = YES;
-
-        self.cowbellExpandedTopConstraint.active = NO;
+    label.userInteractionEnabled =
+        NO;
 
 
-        /*
-         ----------------------------------------------------
-                         水平居中
-         ----------------------------------------------------
-         */
-
-        [NSLayoutConstraint activateConstraints:@[
-
-            [label.centerXAnchor
-             constraintEqualToAnchor:
-             targetContainer.centerXAnchor]
-
-        ]];
+    label.backgroundColor =
+        [UIColor clearColor];
 
 
-        /*
-         ----------------------------------------------------
-                    默认显示状态
-         ----------------------------------------------------
-         */
+    label.textColor =
+        [UIColor whiteColor];
 
-        label.alpha =
-            self.cowbellIsExpanded ? 0.0 : 1.0;
 
-        label.hidden =
-            self.cowbellIsExpanded;
+    label.font =
+        [UIFont systemFontOfSize:9.3
+                          weight:UIFontWeightRegular];
+
+
+    /*
+     ========================================================
+                       Cowbell 镂空
+     ========================================================
+     */
+
+    CAFilter *filter =
+        [CAFilter filterWithType:kCAFilterDestOut];
+
+
+    label.layer.filters =
+        @[filter];
+
+
+    label.tag = 9998;
+
+
+    /*
+     ========================================================
+                  让 Label 跟随 Package View
+     ========================================================
+     */
+
+    [view addSubview:label];
+
+
+    objc_setAssociatedObject(
+        view,
+        &kCowbellPercentLabelKey,
+        label,
+        OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    );
+
+
+    /*
+     ========================================================
+                       电量监听
+     ========================================================
+     */
+
+    [[NSNotificationCenter defaultCenter]
+        addObserverForName:
+            UIDeviceBatteryLevelDidChangeNotification
+        object:nil
+        queue:[NSOperationQueue mainQueue]
+        usingBlock:^(NSNotification *note) {
+
+            CowbellUpdatePercent(view);
+        }];
+
+
+    [[NSNotificationCenter defaultCenter]
+        addObserverForName:
+            UIDeviceBatteryStateDidChangeNotification
+        object:nil
+        queue:[NSOperationQueue mainQueue]
+        usingBlock:^(NSNotification *note) {
+
+            CowbellUpdatePercent(view);
+        }];
+
+
+    [[NSNotificationCenter defaultCenter]
+        addObserverForName:
+            NSProcessInfoPowerStateDidChangeNotification
+        object:nil
+        queue:[NSOperationQueue mainQueue]
+        usingBlock:^(NSNotification *note) {
+
+            CowbellUpdatePercent(view);
+        }];
+
+
+    return label;
+}
+
+
+/*
+ ============================================================
+                    CCUICAPackageView Hook
+ ============================================================
+ */
+
+%hook CCUICAPackageView
+
+
+- (void)layoutSubviews {
+
+    %orig;
+
+
+    /*
+     ========================================================
+                   不是低电量模块
+     ========================================================
+     */
+
+    if (!CowbellIsLowPowerPackage(self)) {
+        return;
     }
 
 
     /*
      ========================================================
-                     二级状态保护
-     ========================================================
-
-     防止系统在二级菜单期间重新 layout，
-     又把百分比显示出来。
+                     电量监控
      ========================================================
      */
 
-    if (self.cowbellIsExpanded) {
+    if (!UIDevice.currentDevice.isBatteryMonitoringEnabled) {
 
-        self.cowbellLabel.hidden = YES;
-        self.cowbellLabel.alpha = 0.0;
-
-    } else {
-
-        /*
-         ----------------------------------------------------
-                         一级菜单
-         ----------------------------------------------------
-         */
-
-        self.cowbellLabel.hidden = NO;
-        self.cowbellLabel.alpha = 1.0;
+        UIDevice.currentDevice.batteryMonitoringEnabled = YES;
     }
 
 
     /*
      ========================================================
-                    刷新电量
+                     获取百分比
      ========================================================
      */
 
-    [self updateCowbellState];
+    UILabel *label =
+        CowbellCreateLabel(self);
+
+
+    if (!label) return;
+
+
+    /*
+     ========================================================
+                     防止干扰原生图标
+     ========================================================
+
+     这里不隐藏原生 subview。
+
+     原生电池图标完全保留。
+     ========================================================
+     */
+
+
+    /*
+     ========================================================
+                     Package View 尺寸
+     ========================================================
+     */
+
+    CGFloat width =
+        self.bounds.size.width;
+
+
+    CGFloat height =
+        self.bounds.size.height;
+
+
+    if (width <= 0 ||
+        height <= 0 ||
+        width > 200 ||
+        height > 200) {
+
+        return;
+    }
+
+
+    /*
+     ========================================================
+                     百分比位置
+     ========================================================
+
+     以 Package View 的中心为基础。
+
+     一级菜单位置只由：
+
+         COWBELL_PERCENT_Y_OFFSET
+
+     控制。
+     ========================================================
+     */
+
+    CGFloat centerY =
+        height * 0.5f;
+
+
+    CGFloat y =
+        centerY +
+        COWBELL_PERCENT_Y_OFFSET;
+
+
+    label.frame =
+        CGRectMake(
+            0,
+            y,
+            width,
+            11.0f
+        );
+
+
+    label.font =
+        [UIFont systemFontOfSize:9.3
+                          weight:UIFontWeightRegular];
+
+
+    /*
+     ========================================================
+                    保证百分比在最上层
+     ========================================================
+     */
+
+    [self bringSubviewToFront:label];
+
+
+    /*
+     ========================================================
+                       刷新电量
+     ========================================================
+     */
+
+    CowbellUpdatePercent(self);
 }
 
 
-/*
- ============================================================
-                       ViewDidAppear
- ============================================================
- */
+- (void)didMoveToWindow {
 
-- (void)viewDidAppear:(BOOL)animated {
-
-    %orig(animated);
+    %orig;
 
 
-    if ([self.moduleIdentifier
-         isEqualToString:
-         @"com.apple.control-center.LowPowerModule"]) {
-
-        NSNotificationCenter *nc =
-            [NSNotificationCenter defaultCenter];
+    if (!CowbellIsLowPowerPackage(self)) {
+        return;
+    }
 
 
-        [nc removeObserver:self
-                      name:NSProcessInfoPowerStateDidChangeNotification
-                    object:nil];
+    if (self.window) {
+
+        if (!UIDevice.currentDevice.isBatteryMonitoringEnabled) {
+
+            UIDevice.currentDevice.batteryMonitoringEnabled = YES;
+        }
 
 
-        [nc removeObserver:self
-                      name:UIDeviceBatteryLevelDidChangeNotification
-                    object:nil];
+        UILabel *label =
+            CowbellGetLabel(self);
 
 
-        [nc addObserver:self
-               selector:@selector(updateCowbellState)
-                   name:NSProcessInfoPowerStateDidChangeNotification
-                 object:nil];
+        if (label) {
 
+            label.hidden = NO;
+            label.alpha = 1.0f;
 
-        [nc addObserver:self
-               selector:@selector(updateCowbellState)
-                   name:UIDeviceBatteryLevelDidChangeNotification
-                 object:nil];
-
-
-        [self updateCowbellState];
+            CowbellUpdatePercent(self);
+        }
     }
 }
 
 
-/*
- ============================================================
-                     ViewDidDisappear
- ============================================================
- */
-
-- (void)viewDidDisappear:(BOOL)animated {
-
-    %orig(animated);
-
-
-    if ([self.moduleIdentifier
-         isEqualToString:
-         @"com.apple.control-center.LowPowerModule"]) {
-
-        NSNotificationCenter *nc =
-            [NSNotificationCenter defaultCenter];
-
-
-        [nc removeObserver:self
-                      name:NSProcessInfoPowerStateDidChangeNotification
-                    object:nil];
-
-
-        [nc removeObserver:self
-                      name:UIDeviceBatteryLevelDidChangeNotification
-                    object:nil];
-    }
-}
+%end
 
 
 /*
  ============================================================
-              一级 <-> 二级菜单同步转场
+              Controller 层只负责二级隐藏 / 恢复
+ ============================================================
+
+ 注意：
+
+ 这里不负责位置。
+
+ 位置完全由 CCUICAPackageView 管理。
+
  ============================================================
  */
+
+@interface CCUIContentModuleContainerViewController : UIViewController
+
+@property (nonatomic, readonly, copy) NSString *moduleIdentifier;
+
+@end
+
+
+%hook CCUIContentModuleContainerViewController
+
 
 - (void)willTransitionToExpandedContentMode:(BOOL)expanded {
 
     %orig(expanded);
 
+
+    /*
+     ========================================================
+                    只处理低电量模块
+     ========================================================
+     */
 
     if (![self.moduleIdentifier
           isEqualToString:
@@ -419,148 +587,87 @@ static CGFloat const COWBELL_EXPANDED_OFFSET = 20.0;
     }
 
 
-    if (!self.cowbellLabel) return;
+    /*
+     ========================================================
+                  找到当前页面里的 PackageView
+     ========================================================
+     */
+
+    NSMutableArray *packageViews =
+        [NSMutableArray array];
+
+
+    void (^findPackageViews)(UIView *) =
+    ^(UIView *root) {
+
+        if (!root) return;
+
+
+        if ([root isKindOfClass:
+             NSClassFromString(@"CCUICAPackageView")]) {
+
+            [packageViews addObject:root];
+        }
+
+
+        for (UIView *subview in root.subviews) {
+
+            findPackageViews(subview);
+        }
+    };
+
+
+    findPackageViews(self.view);
 
 
     /*
      ========================================================
-                       保存当前状态
+                       执行显示状态
      ========================================================
      */
 
-    self.cowbellIsExpanded = expanded;
+    for (CCUICAPackageView *packageView
+         in packageViews) {
+
+        UILabel *label =
+            CowbellGetLabel(packageView);
 
 
-    /*
-     ========================================================
-                       切换位置约束
-     ========================================================
-     */
+        if (!label) continue;
 
-    if (expanded) {
-
-        /*
-         ----------------------------------------------------
-                       一级 -> 二级
-         ----------------------------------------------------
-         */
-
-        self.cowbellCollapsedTopConstraint.active = NO;
-
-        self.cowbellExpandedTopConstraint.active = YES;
-
-    } else {
-
-        /*
-         ----------------------------------------------------
-                       二级 -> 一级
-         ----------------------------------------------------
-         */
-
-        self.cowbellExpandedTopConstraint.active = NO;
-
-        self.cowbellCollapsedTopConstraint.active = YES;
-    }
-
-
-    /*
-     ========================================================
-                       获取容器
-     ========================================================
-     */
-
-    UIView *container =
-        self.cowbellLabel.superview;
-
-
-    if (!container) return;
-
-
-    /*
-     ========================================================
-                     二级 -> 一级
-     ========================================================
-
-     先解除 hidden。
-
-     alpha 保持 0，
-     因此不会突然出现百分比。
-
-     然后和一级菜单一起淡入。
-     ========================================================
-     */
-
-    if (!expanded) {
-
-        self.cowbellLabel.hidden = NO;
-        self.cowbellLabel.alpha = 0.0;
-    }
-
-
-    /*
-     ========================================================
-                       同步动画
-     ========================================================
-     */
-
-    [UIView animateWithDuration:0.25
-                          delay:0.0
-                        options:
-        UIViewAnimationOptionBeginFromCurrentState |
-        UIViewAnimationOptionAllowUserInteraction |
-        UIViewAnimationOptionCurveEaseInOut
-                     animations:^{
-
-        /*
-         ----------------------------------------------------
-                       应用新的位置
-         ----------------------------------------------------
-         */
-
-        [container layoutIfNeeded];
-
-
-        /*
-         ----------------------------------------------------
-                    一级显示 / 二级隐藏
-         ----------------------------------------------------
-         */
-
-        self.cowbellLabel.alpha =
-            expanded ? 0.0 : 1.0;
-
-    }
-                     completion:^(BOOL finished) {
-
-        /*
-         ====================================================
-                         一级 -> 二级
-         ====================================================
-
-         动画结束后彻底 hidden。
-         ====================================================
-         */
 
         if (expanded) {
 
-            self.cowbellLabel.hidden = YES;
-            self.cowbellLabel.alpha = 0.0;
+            /*
+             ------------------------------------------------
+                         一级 -> 二级
+             ------------------------------------------------
+
+             二级彻底隐藏。
+             */
+
+            label.hidden = YES;
+            label.alpha = 0.0f;
 
         } else {
 
-        /*
-         ====================================================
+            /*
+             ------------------------------------------------
                          二级 -> 一级
-         ====================================================
+             ------------------------------------------------
 
-         最终恢复显示。
-         ====================================================
-         */
+             先显示对象，
+             再由系统 PackageView 布局。
 
-            self.cowbellLabel.hidden = NO;
-            self.cowbellLabel.alpha = 1.0;
+             避免百分比晚于图标。
+             */
+
+            label.hidden = NO;
+            label.alpha = 1.0f;
+
+            CowbellUpdatePercent(packageView);
         }
-    }];
+    }
 }
 
 
