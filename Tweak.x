@@ -10,26 +10,14 @@ static const NSInteger kPercentTag = 0xBB22;
 /*
  * ============================================================
  * CCUIToggleViewController
- *
- * 必须完整声明。
- * 否则 Theos/Clang 只知道 @class，
- * self.view / [self class] 都会报错。
  * ============================================================
  */
 
 @interface CCUIToggleViewController : UIViewController
-
 @end
 
 
-/*
- * ============================================================
- * CCUIToggleViewController
- * ============================================================
- */
-
 %hook CCUIToggleViewController
-
 
 - (void)viewWillAppear:(BOOL)animated {
 
@@ -38,13 +26,41 @@ static const NSInteger kPercentTag = 0xBB22;
 
     /*
      * ========================================================
-     * 读取 _module
+     * 通过 Runtime 获取 Class
+     *
+     * 不要使用：
+     *
+     * [CCUIToggleViewController class]
+     *
+     * 否则会产生 linker undefined symbol。
+     * ========================================================
+     */
+
+    Class toggleClass =
+        NSClassFromString(
+            @"CCUIToggleViewController"
+        );
+
+
+    if (!toggleClass) {
+
+        NSLog(
+            @"[SimpleCowbell] CCUIToggleViewController NOT FOUND"
+        );
+
+        return;
+    }
+
+
+    /*
+     * ========================================================
+     * 查找 _module
      * ========================================================
      */
 
     Ivar modIvar =
         class_getInstanceVariable(
-            [CCUIToggleViewController class],
+            toggleClass,
             "_module"
         );
 
@@ -61,7 +77,7 @@ static const NSInteger kPercentTag = 0xBB22;
 
     /*
      * ========================================================
-     * 从当前 VC 实例读取 _module
+     * 读取当前 VC 的 _module
      * ========================================================
      */
 
@@ -114,7 +130,7 @@ static const NSInteger kPercentTag = 0xBB22;
 
     /*
      * ========================================================
-     * 获取真正的 VC View
+     * 获取 VC 的 View
      * ========================================================
      */
 
@@ -133,13 +149,13 @@ static const NSInteger kPercentTag = 0xBB22;
 
 
     NSLog(
-        @"[SimpleCowbell] view=%@",
+        @"[SimpleCowbell] view = %@",
         view
     );
 
 
     NSLog(
-        @"[SimpleCowbell] bounds=%@",
+        @"[SimpleCowbell] bounds = %@",
         NSStringFromCGRect(
             view.bounds
         )
@@ -147,14 +163,14 @@ static const NSInteger kPercentTag = 0xBB22;
 
 
     NSLog(
-        @"[SimpleCowbell] window=%@",
+        @"[SimpleCowbell] window = %@",
         view.window
     );
 
 
     /*
      * ========================================================
-     * 查找已有 Label
+     * 查找 Label
      * ========================================================
      */
 
@@ -189,24 +205,22 @@ static const NSInteger kPercentTag = 0xBB22;
 
 
         /*
-         * ====================================================
-         * Cowbell 镂空效果
-         * ====================================================
+         * 注意：
+         *
+         * 不再使用 allowsGroupBlending。
+         *
+         * 因为 CALayer 公共头文件里没有这个属性，
+         * 直接写会导致 Theos 编译失败。
          */
+
 
         label.layer.allowsGroupOpacity =
             YES;
 
 
         /*
-         * allowsGroupBlending 是私有属性，
-         * 不能直接写：
-         *
-         * label.layer.allowsGroupBlending
-         *
-         * 所以这里不再使用。
+         * Cowbell 的镂空效果
          */
-
 
         label.layer.compositingFilter =
             kCAFilterDestOut;
@@ -246,8 +260,7 @@ static const NSInteger kPercentTag = 0xBB22;
 
 
     /*
-     * 如果系统返回 -1，
-     * 说明当前无法读取电量。
+     * -1 表示暂时无法获取
      */
 
     if (level < 0.0f) {
@@ -308,7 +321,7 @@ static const NSInteger kPercentTag = 0xBB22;
 
 
     NSLog(
-        @"[SimpleCowbell] Label frame=%@",
+        @"[SimpleCowbell] Label frame = %@",
         NSStringFromCGRect(
             label.frame
         )
@@ -316,10 +329,9 @@ static const NSInteger kPercentTag = 0xBB22;
 
 
     NSLog(
-        @"[SimpleCowbell] Label text=%@",
+        @"[SimpleCowbell] Label text = %@",
         label.text
     );
 }
-
 
 %end
