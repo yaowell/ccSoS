@@ -59,7 +59,7 @@ static char kCowbellIsLowPowerKey;
  ============================================================
  */
 
-static CGFloat const COWBELL_PERCENT_Y_OFFSET = 5.5;
+static CGFloat const COWBELL_PERCENT_Y_OFFSET = 8.0;
 
 
 /*
@@ -524,7 +524,7 @@ static void CowbellFindPackageViews(
 
 
     label.font =
-        [UIFont systemFontOfSize:9.3
+        [UIFont systemFontOfSize:10.0
                           weight:UIFontWeightRegular];
 
 
