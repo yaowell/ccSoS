@@ -24,10 +24,23 @@ extern NSString* const kCAFilterDestOut;
 
 %new
 - (void)updateCowbellState {
+    // 强制切回主线程执行，防止非主线程更新 UI 导致安全模式崩溃
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self updateCowbellState];
+        });
+        return;
+    }
+
     if (!self.cowbellLabel) return;
 
-    // 1. 二级菜单展开时隐形，防止错位
-    if (self.isExpanded) {
+    // 1. 安全获取展开状态（防止方法不存在导致的崩溃）
+    BOOL expanded = NO;
+    if ([self respondsToSelector:@selector(isExpanded)]) {
+        expanded = self.isExpanded;
+    }
+
+    if (expanded) {
         self.cowbellLabel.hidden = YES;
         return;
     }
@@ -109,7 +122,7 @@ extern NSString* const kCAFilterDestOut;
     %orig(animated);
 
     if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
-        // 控制中心收起立刻移除监听，完全不占用后台任何资源与电量
+        // 控制中心收起立刻移除监听，不占用后台任何资源与电量
         NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
         [nc removeObserver:self name:NSProcessInfoPowerStateDidChangeNotification object:nil];
         [nc removeObserver:self name:UIDeviceBatteryLevelDidChangeNotification object:nil];
