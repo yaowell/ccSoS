@@ -11,52 +11,52 @@ extern NSString* const kCAFilterDestOut;
 @end
 
 @interface CCUIContentModuleContainerViewController : UIViewController
+
 @property (nonatomic, readonly, copy) NSString *moduleIdentifier;
+
 @property (nonatomic, retain) UILabel *cowbellLabel;
 
-// 一级菜单 / 二级菜单分别记录位置
+// Cowbell 两套独立位置约束
 @property (nonatomic, retain) NSLayoutConstraint *cowbellCollapsedTopConstraint;
 @property (nonatomic, retain) NSLayoutConstraint *cowbellExpandedTopConstraint;
 
+// 当前是否处于二级菜单
+@property (nonatomic, assign) BOOL cowbellIsExpanded;
+
 - (UIView *)contentView;
 - (void)updateCowbellState;
+
 @end
 
 
 %hook CCUIContentModuleContainerViewController
 
 %property (nonatomic, retain) UILabel *cowbellLabel;
-%property (nonatomic, retain) NSLayoutConstraint *cowbellCollapsedTopConstraint;
-%property (nonatomic, retain) NSLayoutConstraint *cowbellExpandedTopConstraint;
+
+%property (nonatomic, retain)
+NSLayoutConstraint *cowbellCollapsedTopConstraint;
+
+%property (nonatomic, retain)
+NSLayoutConstraint *cowbellExpandedTopConstraint;
+
+%property (nonatomic, assign)
+BOOL cowbellIsExpanded;
 
 
 /*
  ============================================================
-                 Cowbell 位置调节区域
+                    Cowbell 位置调节
  ============================================================
 
- 只需要修改下面两个数字。
+ 一级菜单：
+ 数字越大 -> 百分比越往下
+ 数字越小 -> 百分比越往上
 
- ------------------------------------------------------------
- 一级菜单
- ------------------------------------------------------------
+ 二级菜单：
+ 数字越大 -> 百分比越往下
+ 数字越小 -> 百分比越往上
 
- 数字越大：
-    百分比越往下
-
- 数字越小：
-    百分比越往上
-
- ------------------------------------------------------------
- 二级菜单
- ------------------------------------------------------------
-
- 数字越大：
-    百分比越往下
-
- 数字越小：
-    百分比越往上
-
+ 两个数字互不影响。
  ============================================================
  */
 
@@ -69,7 +69,7 @@ static CGFloat const COWBELL_EXPANDED_OFFSET = 20.0;
 
 /*
  ============================================================
-                    更新百分比
+                    更新电量百分比
  ============================================================
  */
 
@@ -77,31 +77,47 @@ static CGFloat const COWBELL_EXPANDED_OFFSET = 20.0;
 - (void)updateCowbellState {
 
     if (![NSThread isMainThread]) {
+
         dispatch_async(dispatch_get_main_queue(), ^{
             [self updateCowbellState];
         });
+
         return;
     }
 
     if (!self.cowbellLabel) return;
 
-    // 1. 读取电量
-    float level = [[UIDevice currentDevice] batteryLevel];
 
-    float safeLevel = (level < 0) ? 1.0 : level;
+    /*
+     --------------------------------------------------------
+     读取电量
+     --------------------------------------------------------
+     */
 
-    int battery = (int)round(safeLevel * 100);
+    float level =
+        [[UIDevice currentDevice] batteryLevel];
+
+    float safeLevel =
+        (level < 0) ? 1.0 : level;
+
+    int battery =
+        (int)round(safeLevel * 100);
+
 
     self.cowbellLabel.text =
         [NSString stringWithFormat:@"%i%%", battery];
 
 
-    // 2. 低电量模式状态
+    /*
+     --------------------------------------------------------
+     低电量模式状态
+     --------------------------------------------------------
+     */
+
     BOOL isLPMOn =
         [[NSProcessInfo processInfo] isLowPowerModeEnabled];
 
 
-    // 3. 保持原来的颜色逻辑
     self.cowbellLabel.textColor =
         isLPMOn
         ? [UIColor blackColor]
@@ -111,7 +127,7 @@ static CGFloat const COWBELL_EXPANDED_OFFSET = 20.0;
 
 /*
  ============================================================
-                    ViewDidLoad
+                        ViewDidLoad
  ============================================================
  */
 
@@ -119,23 +135,41 @@ static CGFloat const COWBELL_EXPANDED_OFFSET = 20.0;
 
     %orig;
 
+
     if ([self.moduleIdentifier
          isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
 
         [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+
+        // 初始状态一定认为是一级菜单
+        self.cowbellIsExpanded = NO;
     }
 }
 
 
 /*
  ============================================================
-                 一级 / 二级菜单布局
+                   创建 Cowbell Label
+ ============================================================
+
+ 注意：
+
+ viewDidLayoutSubviews 这里只负责：
+
+ 1. 找到容器
+ 2. 创建百分比 Label
+ 3. 创建一级 / 二级两套约束
+
+ 不在这里判断一级 / 二级。
+
+ 这样就不会因为系统反复 layout 导致百分比跳动。
  ============================================================
  */
 
 - (void)viewDidLayoutSubviews {
 
     %orig;
+
 
     if (![self.moduleIdentifier
           isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
@@ -154,9 +188,9 @@ static CGFloat const COWBELL_EXPANDED_OFFSET = 20.0;
 
 
     /*
-     ----------------------------------------------------------
-     第一次创建 Cowbell 百分比
-     ----------------------------------------------------------
+     ========================================================
+                       第一次创建 Label
+     ========================================================
      */
 
     if (!self.cowbellLabel) {
@@ -186,9 +220,9 @@ static CGFloat const COWBELL_EXPANDED_OFFSET = 20.0;
 
 
         /*
-         ------------------------------------------------------
-         保持 Cowbell 原来的镂空效果
-         ------------------------------------------------------
+         ----------------------------------------------------
+         Cowbell 镂空效果
+         ----------------------------------------------------
          */
 
         CAFilter *filter =
@@ -198,12 +232,6 @@ static CGFloat const COWBELL_EXPANDED_OFFSET = 20.0;
         label.layer.filters =
             @[filter];
 
-
-        /*
-         ------------------------------------------------------
-         AutoLayout
-         ------------------------------------------------------
-         */
 
         label.translatesAutoresizingMaskIntoConstraints = NO;
 
@@ -215,50 +243,35 @@ static CGFloat const COWBELL_EXPANDED_OFFSET = 20.0;
 
 
         /*
-         ======================================================
-                    创建两个独立的位置约束
-         ======================================================
-
-         注意：
-
-         这里不是创建两个 Label。
-
-         仍然只有一个 cowbellLabel。
-
-         只是给同一个 Label 准备：
-
-             一级菜单位置
-             ↓
-             cowbellCollapsedTopConstraint
-
-             二级菜单位置
-             ↓
-             cowbellExpandedTopConstraint
-
-         所以不会出现：
-         “二级菜单重新创建百分比”
-         “一级菜单等待二级菜单”
-         这种情况。
-         ======================================================
+         ====================================================
+                    一级菜单位置约束
+         ====================================================
          */
-
 
         self.cowbellCollapsedTopConstraint =
             [label.topAnchor
-             constraintEqualToAnchor:targetContainer.centerYAnchor
+             constraintEqualToAnchor:
+             targetContainer.centerYAnchor
              constant:COWBELL_COLLAPSED_OFFSET];
 
 
+        /*
+         ====================================================
+                    二级菜单位置约束
+         ====================================================
+         */
+
         self.cowbellExpandedTopConstraint =
             [label.topAnchor
-             constraintEqualToAnchor:targetContainer.centerYAnchor
+             constraintEqualToAnchor:
+             targetContainer.centerYAnchor
              constant:COWBELL_EXPANDED_OFFSET];
 
 
         /*
-         ------------------------------------------------------
-         两个约束不能同时 Active
-         ------------------------------------------------------
+         ====================================================
+                    默认只启用一级菜单约束
+         ====================================================
          */
 
         self.cowbellCollapsedTopConstraint.active = YES;
@@ -267,84 +280,38 @@ static CGFloat const COWBELL_EXPANDED_OFFSET = 20.0;
 
 
         /*
-         ------------------------------------------------------
-         水平位置始终保持居中
-         ------------------------------------------------------
+         ----------------------------------------------------
+         水平始终居中
+         ----------------------------------------------------
          */
 
         [NSLayoutConstraint activateConstraints:@[
 
             [label.centerXAnchor
-             constraintEqualToAnchor:targetContainer.centerXAnchor]
+             constraintEqualToAnchor:
+             targetContainer.centerXAnchor]
 
         ]];
     }
 
 
     /*
-     ==========================================================
-                   根据当前状态切换位置
-     ==========================================================
+     ========================================================
+     注意：
 
-     expanded 模式：
+     这里故意不再切换：
 
-         二级菜单位置
+         cowbellCollapsedTopConstraint
+         cowbellExpandedTopConstraint
 
-     collapsed 模式：
+     位置切换全部交给：
 
-         一级菜单位置
-     ==========================================================
+         willTransitionToExpandedContentMode:
+
+     这样可以避免收起时发生跳动。
+     ========================================================
      */
 
-
-    BOOL expanded = NO;
-
-
-    /*
-     这里通过当前 ViewController 的展开状态
-     来决定使用哪一套位置。
-     */
-
-    if ([self respondsToSelector:
-         @selector(isExpanded)]) {
-
-        @try {
-
-            expanded =
-                [[self valueForKey:@"expanded"] boolValue];
-
-        } @catch (__unused NSException *exception) {
-
-            expanded = NO;
-        }
-    }
-
-
-    /*
-     ----------------------------------------------------------
-     切换约束
-     ----------------------------------------------------------
-     */
-
-    if (expanded) {
-
-        self.cowbellCollapsedTopConstraint.active = NO;
-
-        self.cowbellExpandedTopConstraint.active = YES;
-
-    } else {
-
-        self.cowbellExpandedTopConstraint.active = NO;
-
-        self.cowbellCollapsedTopConstraint.active = YES;
-    }
-
-
-    /*
-     ----------------------------------------------------------
-     保持原来的刷新逻辑
-     ----------------------------------------------------------
-     */
 
     [self updateCowbellState];
 }
@@ -352,7 +319,7 @@ static CGFloat const COWBELL_EXPANDED_OFFSET = 20.0;
 
 /*
  ============================================================
-                     ViewDidAppear
+                       ViewDidAppear
  ============================================================
  */
 
@@ -370,9 +337,9 @@ static CGFloat const COWBELL_EXPANDED_OFFSET = 20.0;
 
 
         /*
-         ------------------------------------------------------
-         清理旧 Observer
-         ------------------------------------------------------
+         ----------------------------------------------------
+         防止重复注册
+         ----------------------------------------------------
          */
 
         [nc removeObserver:self
@@ -386,9 +353,9 @@ static CGFloat const COWBELL_EXPANDED_OFFSET = 20.0;
 
 
         /*
-         ------------------------------------------------------
-         低电量模式状态变化
-         ------------------------------------------------------
+         ----------------------------------------------------
+         低电量模式变化
+         ----------------------------------------------------
          */
 
         [nc addObserver:self
@@ -398,9 +365,9 @@ static CGFloat const COWBELL_EXPANDED_OFFSET = 20.0;
 
 
         /*
-         ------------------------------------------------------
+         ----------------------------------------------------
          电量变化
-         ------------------------------------------------------
+         ----------------------------------------------------
          */
 
         [nc addObserver:self
@@ -410,9 +377,9 @@ static CGFloat const COWBELL_EXPANDED_OFFSET = 20.0;
 
 
         /*
-         ------------------------------------------------------
+         ----------------------------------------------------
          立即刷新
-         ------------------------------------------------------
+         ----------------------------------------------------
          */
 
         [self updateCowbellState];
@@ -422,7 +389,7 @@ static CGFloat const COWBELL_EXPANDED_OFFSET = 20.0;
 
 /*
  ============================================================
-                    ViewDidDisappear
+                      ViewDidDisappear
  ============================================================
  */
 
@@ -453,7 +420,28 @@ static CGFloat const COWBELL_EXPANDED_OFFSET = 20.0;
 
 /*
  ============================================================
-                展开 / 收起动画
+                一级 <-> 二级菜单位置切换
+ ============================================================
+
+ 这是现在唯一负责切换位置的地方。
+
+ 不让 viewDidLayoutSubviews 再插手。
+
+ 所以：
+
+ 一级 -> 二级
+        ↓
+ 直接切换到二级约束
+
+ 二级 -> 一级
+        ↓
+直接切换回一级约束
+
+ 不会再出现：
+ “先跳到一个位置”
+ “重新 layout”
+ “再跳回来”
+ 的情况。
  ============================================================
  */
 
@@ -462,38 +450,82 @@ static CGFloat const COWBELL_EXPANDED_OFFSET = 20.0;
     %orig(expanded);
 
 
-    if ([self.moduleIdentifier
-         isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
+    if (![self.moduleIdentifier
+          isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
 
-
-        if (!self.cowbellLabel) return;
-
-
-        /*
-         ------------------------------------------------------
-         切换一级 / 二级位置
-         ------------------------------------------------------
-         */
-
-        self.cowbellCollapsedTopConstraint.active = !expanded;
-
-        self.cowbellExpandedTopConstraint.active = expanded;
-
-
-        /*
-         ------------------------------------------------------
-         保持原来的淡入淡出逻辑
-         ------------------------------------------------------
-         */
-
-        [UIView animateWithDuration:0.25
-                         animations:^{
-
-            self.cowbellLabel.alpha =
-                expanded ? 0.0 : 1.0;
-
-        }];
+        return;
     }
+
+
+    if (!self.cowbellLabel) return;
+
+
+    /*
+     ========================================================
+                       记录当前状态
+     ========================================================
+     */
+
+    self.cowbellIsExpanded = expanded;
+
+
+    /*
+     ========================================================
+                       切换位置
+     ========================================================
+     */
+
+    if (expanded) {
+
+        /*
+         ----------------------------------------------------
+         一级 -> 二级
+         ----------------------------------------------------
+         */
+
+        self.cowbellCollapsedTopConstraint.active = NO;
+
+        self.cowbellExpandedTopConstraint.active = YES;
+
+    } else {
+
+        /*
+         ----------------------------------------------------
+         二级 -> 一级
+         ----------------------------------------------------
+         */
+
+        self.cowbellExpandedTopConstraint.active = NO;
+
+        self.cowbellCollapsedTopConstraint.active = YES;
+    }
+
+
+    /*
+     ========================================================
+                       强制立即重新布局
+     ========================================================
+
+     这样约束切换后马上生效。
+     ========================================================
+     */
+
+    [self.cowbellLabel.superview layoutIfNeeded];
+
+
+    /*
+     ========================================================
+                       原来的淡入淡出
+     ========================================================
+     */
+
+    [UIView animateWithDuration:0.25
+                     animations:^{
+
+        self.cowbellLabel.alpha =
+            expanded ? 0.0 : 1.0;
+
+    }];
 }
 
 
