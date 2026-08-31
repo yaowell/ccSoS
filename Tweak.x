@@ -1,129 +1,71 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
-#import <objc/runtime.h>
 #import <unistd.h>
 
 @interface CCUICAPackageView : UIView
 @property (nonatomic, copy) NSString *packageName;
 @end
 
+static void CBWriteDebug(NSString *text) {
 
-static NSString *CBLogPath(void) {
-    return @"/var/mobile/Media/Downloads/CBDEBUG.txt";
-}
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
 
+        NSString *path =
+            @"/var/mobile/Media/Downloads/CBDEBUG.txt";
 
-static void CBWriteLog(NSString *format, ...) {
+        NSString *line =
+            [NSString stringWithFormat:
+                @"[%@] PID:%d %@\n",
+                [NSDate date],
+                getpid(),
+                text];
 
-    NSString *path = CBLogPath();
+        NSFileManager *fm =
+            [NSFileManager defaultManager];
 
-    va_list args;
-    va_start(args, format);
+        NSDictionary *attr =
+            [fm attributesOfItemAtPath:path error:nil];
 
-    NSString *message =
-        [[NSString alloc] initWithFormat:format arguments:args];
+        unsigned long long size =
+            [attr fileSize];
 
-    va_end(args);
+        /*
+         * 超过 100 KB 就清空。
+         */
+        if (size > 100 * 1024) {
+            [fm removeItemAtPath:path error:nil];
+        }
 
+        NSFileHandle *file =
+            [NSFileHandle fileHandleForWritingAtPath:path];
 
-    NSString *time =
-        [[NSDate date] description];
+        if (!file) {
 
-    NSString *line =
-        [NSString stringWithFormat:
-            @"\n[%@] PID:%d %@\n",
-            time,
-            getpid(),
-            message];
+            [line writeToFile:path
+                   atomically:YES
+                     encoding:NSUTF8StringEncoding
+                        error:nil];
 
+            return;
+        }
 
-    /*
-     * 防止日志无限变大
-     */
-    NSDictionary *attrs =
-        [[NSFileManager defaultManager]
-            attributesOfItemAtPath:path
-                             error:nil];
+        @try {
+            [file seekToEndOfFile];
 
-    unsigned long long fileSize =
-        [attrs fileSize];
+            [file writeData:
+                [line dataUsingEncoding:
+                    NSUTF8StringEncoding]];
 
-    if (fileSize > 300 * 1024) {
-        [[NSFileManager defaultManager]
-            removeItemAtPath:path
-                       error:nil];
-    }
+            [file closeFile];
 
-
-    NSString *old =
-        [NSString stringWithContentsOfFile:path
-                                  encoding:NSUTF8StringEncoding
-                                     error:nil];
-
-    if (!old) {
-        old = @"";
-    }
-
-
-    NSString *result =
-        [old stringByAppendingString:line];
-
-
-    [result writeToFile:path
-             atomically:YES
-               encoding:NSUTF8StringEncoding
-                  error:nil];
-}
-
-
-/*
- * 获取整个父级层级
- */
-static NSString *CBHierarchy(UIView *view) {
-
-    NSMutableString *result =
-        [NSMutableString string];
-
-    UIView *current = view;
-
-    int level = 0;
-
-    while (current && level < 12) {
-
-        [result appendFormat:
-            @"\n  [%d] %@ frame=%@ hidden=%d alpha=%.2f",
-            level,
-            NSStringFromClass([current class]),
-            NSStringFromCGRect(current.frame),
-            current.hidden,
-            current.alpha
-        ];
-
-        current = current.superview;
-        level++;
-    }
-
-    return result;
-}
-
-
-/*
- * tweak 加载测试
- */
-%ctor {
-
-    CBWriteLog(
-        @"==============================\n"
-         "SimpleCowbell DEBUG START\n"
-         "Process=%@\n"
-         "==============================",
-        [[NSProcessInfo processInfo] processName]
-    );
+        } @catch (__unused NSException *exception) {
+            [file closeFile];
+        }
+    });
 }
 
 
 %hook CCUICAPackageView
-
 
 - (void)didMoveToWindow {
 
@@ -131,72 +73,24 @@ static NSString *CBHierarchy(UIView *view) {
 
     UIView *view = (UIView *)self;
 
-    CBWriteLog(
-        @"\n========== didMoveToWindow ==========\n"
-         "packageName=%@\n"
-         "window=%@\n"
-         "hierarchy:%@",
-        self.packageName,
-        view.window,
-        CBHierarchy(view)
-    );
+    NSString *className =
+        NSStringFromClass([view class]);
+
+    NSString *package =
+        self.packageName ?: @"";
+
+    BOOL hasWindow =
+        (view.window != nil);
+
+    NSString *message =
+        [NSString stringWithFormat:
+            @"CCUICAPackageView didMoveToWindow | "
+             "class=%@ | package=%@ | window=%d",
+            className,
+            package,
+            hasWindow];
+
+    CBWriteDebug(message);
 }
-
-
-- (void)layoutSubviews {
-
-    %orig;
-
-    UIView *view = (UIView *)self;
-
-    CBWriteLog(
-        @"\n========== layoutSubviews ==========\n"
-         "packageName=%@\n"
-         "frame=%@\n"
-         "hidden=%d\n"
-         "alpha=%.2f\n"
-         "hierarchy:%@",
-        self.packageName,
-        NSStringFromCGRect(view.frame),
-        view.hidden,
-        view.alpha,
-        CBHierarchy(view)
-    );
-}
-
-
-- (void)setHidden:(BOOL)hidden {
-
-    UIView *view = (UIView *)self;
-
-    CBWriteLog(
-        @"========== setHidden ==========\n"
-         "packageName=%@\n"
-         "old=%d new=%d",
-        self.packageName,
-        view.hidden,
-        hidden
-    );
-
-    %orig;
-}
-
-
-- (void)setAlpha:(CGFloat)alpha {
-
-    UIView *view = (UIView *)self;
-
-    CBWriteLog(
-        @"========== setAlpha ==========\n"
-         "packageName=%@\n"
-         "old=%.2f new=%.2f",
-        self.packageName,
-        view.alpha,
-        alpha
-    );
-
-    %orig;
-}
-
 
 %end
