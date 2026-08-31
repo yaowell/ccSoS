@@ -1,37 +1,51 @@
 #import <UIKit/UIKit.h>
 
-// 1. 补全类接口声明，告知 Clang 它继承自 UIView
 @interface CCUIContentModuleContainerView : UIView
 @end
 
-// 2. 递归打印视图树与 Frame
-static void printViewHierarchy(UIView *view, int depth) {
-    if (!view) return;
-    NSMutableString *indent = [NSMutableString string];
-    for (int i = 0; i < depth; i++) [indent appendString:@"  |"];
+// 收集 3 层以内的核心 View 信息
+static void collectHierarchy(UIView *view, int depth, NSMutableString *result) {
+    if (!view || depth > 3) return;
     
-    NSLog(@"[Cowbell_Debug]%@ %@ (Frame: %@, Hidden: %d, Alpha: %.2f)", 
-          indent, 
-          NSStringFromClass([view class]), 
-          NSStringFromCGRect(view.frame), 
-          view.hidden, 
-          view.alpha);
+    for (int i = 0; i < depth; i++) [result appendString:@"  --"];
+    [result appendFormat:@"%@ (%.0f,%.0f)\n", 
+            NSStringFromClass([view class]), 
+            view.frame.size.width, 
+            view.frame.size.height];
 
     for (UIView *subview in view.subviews) {
-        printViewHierarchy(subview, depth + 1);
+        collectHierarchy(subview, depth + 1, result);
     }
 }
+
+static BOOL hasShownAlert = NO;
 
 %hook CCUIContentModuleContainerView
 
 - (void)layoutSubviews {
     %orig;
     
-    // 使用 description 检查是否为低电量模块
     NSString *desc = [self description];
-    if ([desc containsString:@"LowPower"] || [desc containsString:@"lowpower"]) {
-        NSLog(@"[Cowbell_Debug] === Found LowPower Container ===");
-        printViewHierarchy(self, 0);
+    if ((!hasShownAlert) && ([desc containsString:@"LowPower"] || [desc containsString:@"lowpower"])) {
+        hasShownAlert = YES;
+        
+        NSMutableString *hierarchyText = [NSMutableString string];
+        collectHierarchy(self, 0, hierarchyText);
+        
+        dispatch_async(dispatch_get_main_queue(), ^{
+            UIViewController *rootVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+            while (rootVC.presentedViewController) {
+                rootVC = rootVC.presentedViewController;
+            }
+            
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"LowPower Hierarchy" 
+                                                                           message:hierarchyText 
+                                                                    preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+                hasShownAlert = NO;
+            }]];
+            [rootVC presentViewController:alert animated:YES completion:nil];
+        });
     }
 }
 
