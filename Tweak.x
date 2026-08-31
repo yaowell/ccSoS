@@ -19,9 +19,6 @@ extern NSString* const kCAFilterDestOut;
 - (void)updateCowbellState;
 @end
 
-@interface CCUIContentModuleContentContainerView : UIView
-@end
-
 %hook CCUIContentModuleContainerViewController
 %property (nonatomic, retain) UILabel *cowbellLabel;
 
@@ -29,7 +26,7 @@ extern NSString* const kCAFilterDestOut;
 - (void)updateCowbellState {
     if (!self.cowbellLabel) return;
 
-    // 1. 二级菜单展开时隐形
+    // 1. 二级菜单展开时隐形，防止错位
     if (self.isExpanded) {
         self.cowbellLabel.hidden = YES;
         return;
@@ -61,7 +58,7 @@ extern NSString* const kCAFilterDestOut;
         labelH
     );
 
-    // 4. 读取当前系统的低电量开关状态
+    // 4. 读取系统低电量状态，同步更新滤镜
     BOOL isLPMOn = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
     if (isLPMOn) {
         self.cowbellLabel.layer.compositingFilter = kCAFilterDestOut;
@@ -92,6 +89,33 @@ extern NSString* const kCAFilterDestOut;
     }
 }
 
+- (void)viewDidAppear:(BOOL)animated {
+    %orig(animated);
+
+    if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
+        NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
+        [nc removeObserver:self name:NSProcessInfoPowerStateDidChangeNotification object:nil];
+        [nc removeObserver:self name:UIDeviceBatteryLevelDidChangeNotification object:nil];
+
+        // 仅在控制中心展示时绑定系统低电量切换与电量变化通知
+        [nc addObserver:self selector:@selector(updateCowbellState) name:NSProcessInfoPowerStateDidChangeNotification object:nil];
+        [nc addObserver:self selector:@selector(updateCowbellState) name:UIDeviceBatteryLevelDidChangeNotification object:nil];
+
+        [self updateCowbellState];
+    }
+}
+
+- (void)viewDidDisappear:(BOOL)animated {
+    %orig(animated);
+
+    if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
+        // 控制中心收起立刻移除监听，完全不占用后台任何资源与电量
+        NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
+        [nc removeObserver:self name:NSProcessInfoPowerStateDidChangeNotification object:nil];
+        [nc removeObserver:self name:UIDeviceBatteryLevelDidChangeNotification object:nil];
+    }
+}
+
 - (void)viewDidLayoutSubviews {
     %orig;
 
@@ -100,6 +124,7 @@ extern NSString* const kCAFilterDestOut;
     }
 }
 
+// 响应二级菜单展开与收起
 - (void)willTransitionToExpandedContentMode:(BOOL)expanded {
     %orig(expanded);
 
@@ -109,30 +134,6 @@ extern NSString* const kCAFilterDestOut;
             if (!expanded) {
                 [self updateCowbellState];
             }
-        }
-    }
-}
-
-%end
-
-// 关键点：Hook 低电量模块内部的实际 View 绘制入口
-// 点击按钮切换状态时，系统必定会调用这个 View 的 layoutSubviews 或 setNeedsLayout
-%hook CCUIContentModuleContentContainerView
-
-- (void)layoutSubviews {
-    %orig;
-
-    // 向上寻找 ContainerViewController 强制刷新 Label
-    for (UIResponder *r = self; r; r = r.nextResponder) {
-        if ([r isKindOfClass:NSClassFromString(@"CCUIContentModuleContainerViewController")]) {
-            CCUIContentModuleContainerViewController *vc = (CCUIContentModuleContainerViewController *)r;
-            if ([vc.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
-                // 确保在系统修改完 isLowPowerModeEnabled 后的下一帧刷新
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    [vc updateCowbellState];
-                });
-            }
-            break;
         }
     }
 }
