@@ -15,7 +15,13 @@ extern NSString* const kCAFilterDestOut;
 @interface CCUIContentModuleContainerViewController : UIViewController
 @property (nonatomic, readonly, copy) NSString *moduleIdentifier;
 @property (nonatomic, retain) UILabel *cowbellLabel;
+@property (nonatomic, readonly, assign, getter=isExpanded) BOOL expanded;
 - (void)updateCowbellState;
+@end
+
+@interface CCUIRoundButton : UIView
+@property (nonatomic, retain) UILabel *cowbellLabel;
+- (void)updateCowbellLabelState;
 @end
 
 %hook CCUIContentModuleContainerViewController
@@ -40,7 +46,7 @@ extern NSString* const kCAFilterDestOut;
     self.cowbellLabel.text = [NSString stringWithFormat:@"%i%%", battery];
     [self.cowbellLabel sizeToFit];
 
-    // 2. 布局：居中对齐在模块下半部分
+    // 2. 禁用隐式动画，防止重绘闪烁
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
 
@@ -49,6 +55,7 @@ extern NSString* const kCAFilterDestOut;
     CGFloat labelW = self.cowbellLabel.frame.size.width;
     CGFloat labelH = self.cowbellLabel.frame.size.height;
 
+    // 定位在图标正下方
     self.cowbellLabel.frame = CGRectMake(
         (viewW - labelW) / 2.0,
         viewH * 0.72 - (labelH / 2.0),
@@ -56,8 +63,7 @@ extern NSString* const kCAFilterDestOut;
         labelH
     );
 
-    // 3. 不再动态改动 compositingFilter（防止全屏闪烁）
-    // 仅通过颜色切换适配低电量模式高亮
+    // 3. 同步颜色切换（低电量高亮为黑字，非低电量为纯白字）
     BOOL isLPMOn = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
     self.cowbellLabel.textColor = isLPMOn ? [UIColor blackColor] : [UIColor whiteColor];
 
@@ -75,8 +81,7 @@ extern NSString* const kCAFilterDestOut;
             label.textColor = [UIColor whiteColor];
             label.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
             label.textAlignment = NSTextAlignmentCenter;
-            label.layer.allowsGroupBlending = NO;
-            label.layer.allowsGroupOpacity = YES;
+            label.userInteractionEnabled = NO;
 
             [self.view addSubview:label];
             self.cowbellLabel = label;
@@ -114,6 +119,21 @@ extern NSString* const kCAFilterDestOut;
 
     if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
         [self updateCowbellState];
+    }
+}
+
+// 核心修复：二级菜单展开时，将 Label 完全隐形，消除展开后下方透出文字的问题
+- (void)willTransitionToExpandedContentMode:(BOOL)expanded {
+    %orig(expanded);
+
+    if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
+        if (self.cowbellLabel) {
+            // 展开时立即隐藏，收起时恢复
+            self.cowbellLabel.hidden = expanded;
+            if (!expanded) {
+                [self updateCowbellState];
+            }
+        }
     }
 }
 
