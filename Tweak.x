@@ -4,8 +4,12 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
-// 声明系统私有滤镜常量
+// 声明私有类与私有常量
 extern NSString* const kCAFilterDestOut;
+
+@interface CAFilter : NSObject
++ (instancetype)filterWithType:(NSString *)type;
+@end
 
 @interface CCUIContentModuleContainerViewController : UIViewController
 @property (nonatomic, readonly, copy) NSString *moduleIdentifier;
@@ -88,11 +92,10 @@ extern NSString* const kCAFilterDestOut;
             label.textAlignment = NSTextAlignmentCenter;
             label.userInteractionEnabled = NO;
 
-            // 关键：为了实现镂空，必须使用纯黑/纯白作为 Mask 载体，且背景必须完全透明
             label.backgroundColor = [UIColor clearColor];
             label.textColor = [UIColor whiteColor];
 
-            // 核心 Cowbell 灵魂：开启 kCAFilterDestOut 滤镜，直接切穿图层露出系统底层
+            // 镂空核心：开启 kCAFilterDestOut 滤镜
             CAFilter *filter = [CAFilter filterWithType:kCAFilterDestOut];
             label.layer.filters = @[filter];
 
