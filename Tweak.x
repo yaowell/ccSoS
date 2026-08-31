@@ -28,7 +28,7 @@
     CGFloat viewW = self.view.bounds.size.width;
     CGFloat viewH = self.view.bounds.size.height;
 
-    // 关键防御 1：当容器高度大于 90 时（说明正在展开或已在顶部），直接强制隐藏并中断，绝不在顶部渲染，解决飞到灵动岛的问题
+    // 展开或尺寸异常时隐藏，防止顶部留存
     BOOL isExpandedState = NO;
     if ([self respondsToSelector:@selector(isExpanded)]) {
         isExpandedState = self.expanded;
@@ -39,17 +39,17 @@
         return;
     }
 
-    // 读取电量
+    // 1. 读取电量
     float level = [[UIDevice currentDevice] batteryLevel];
     float safeLevel = (level < 0) ? 1.0 : level;
     int battery = (int)round(safeLevel * 100);
     self.cowbellLabel.text = [NSString stringWithFormat:@"%i%%", battery];
 
-    // 读取系统低电量模式状态切颜色
+    // 2. 颜色切换
     BOOL isLPMOn = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
     self.cowbellLabel.textColor = isLPMOn ? [UIColor blackColor] : [UIColor whiteColor];
 
-    // 禁用隐式动画更新 Frame，防止点击时产生位移飞跃
+    // 3. 精准位置计算（解决位置太靠上的问题）
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
 
@@ -58,18 +58,19 @@
     CGFloat labelW = self.cowbellLabel.frame.size.width;
     CGFloat labelH = self.cowbellLabel.frame.size.height;
 
-    // 垂直居中于图标下方
+    // 水平居中，纵向固定在卡片底部上方 8pt 的位置（完美下移，绝不骑上图标）
     self.cowbellLabel.frame = CGRectMake(
         (viewW - labelW) / 2.0,
-        viewH * 0.63 - (labelH / 2.0),
+        viewH - labelH - 8.0,
         labelW,
         labelH
     );
 
     [CATransaction commit];
 
-    // 处于正常一级卡片状态下恢复显示
+    // 显示 Label
     self.cowbellLabel.hidden = NO;
+    self.cowbellLabel.alpha = 1.0;
 }
 
 - (void)viewDidLoad {
@@ -124,7 +125,7 @@
     }
 }
 
-// 关键防御 2：同步转场生命周期
+// 解决顿一下的关键：在收到收回通知的第一毫秒，提前算好位置并解除 hidden
 - (void)willTransitionToExpandedContentMode:(BOOL)expanded {
     %orig(expanded);
 
@@ -132,18 +133,12 @@
         if (!self.cowbellLabel) return;
 
         if (expanded) {
-            // 展开瞬间立刻隐形，禁止跟随系统 CoreAnimation 动画飞到灵动岛
             self.cowbellLabel.hidden = YES;
         } else {
-            // 收起切回一级菜单：在转场 Block 内解除隐藏，让 Layer 直接绑定系统的缩放动画一同显示
-            id<UIViewControllerTransitionCoordinator> coordinator = self.transitionCoordinator;
-            if (coordinator) {
-                [coordinator animateAlongsideTransition:^(id<UIViewControllerTransitionCoordinatorContext> context) {
-                    [self updateCowbellState];
-                } completion:nil];
-            } else {
-                [self updateCowbellState];
-            }
+            // 切回一级：立即强制刷一次布局并解除隐藏，让 UIKit 原生缩放动画带着它一起变小回归
+            self.cowbellLabel.hidden = NO;
+            self.cowbellLabel.alpha = 1.0;
+            [self updateCowbellState];
         }
     }
 }
