@@ -15,6 +15,7 @@ extern NSString* const kCAFilterDestOut;
 @interface CCUIContentModuleContainerViewController : UIViewController
 @property (nonatomic, readonly, copy) NSString *moduleIdentifier;
 @property (nonatomic, retain) UILabel *cowbellLabel;
+@property (nonatomic, readonly, assign, getter=isExpanded) BOOL expanded;
 - (void)updateCowbellState;
 @end
 
@@ -25,15 +26,25 @@ extern NSString* const kCAFilterDestOut;
 - (void)updateCowbellState {
     if (!self.cowbellLabel) return;
 
-    // 1. 获取设备真实电量
+    // 二级菜单展开时直接隐藏，防止布局变形
+    if (self.isExpanded) {
+        self.cowbellLabel.hidden = YES;
+        return;
+    }
+    self.cowbellLabel.hidden = NO;
+
+    // 1. 读取当前电量
     float level = [[UIDevice currentDevice] batteryLevel];
     float safeLevel = (level < 0) ? 1.0 : level;
     int battery = (int)round(safeLevel * 100);
 
-    // 2. 刷新文本与位置（定位在按钮下半部分，避开中间的原生图标）
     self.cowbellLabel.text = [NSString stringWithFormat:@"%i%%", battery];
     [self.cowbellLabel sizeToFit];
     [self.view bringSubviewToFront:self.cowbellLabel];
+
+    // 2. 禁用隐式动画，防止切回一级菜单时文字“飞跃”
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
 
     CGFloat viewW = self.view.bounds.size.width > 0 ? self.view.bounds.size.width : 72.0;
     CGFloat viewH = self.view.bounds.size.height > 0 ? self.view.bounds.size.height : 72.0;
@@ -47,13 +58,11 @@ extern NSString* const kCAFilterDestOut;
         labelH
     );
 
-    // 3. 经典 Cowbell 混合滤镜：开启低电量模式时 GPU 镂空，关闭时普通白色
+    // 3. 根据低电量状态实时切换 GPU 镂空滤镜
     BOOL isLPMOn = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
-    if (isLPMOn) {
-        self.cowbellLabel.layer.compositingFilter = kCAFilterDestOut;
-    } else {
-        self.cowbellLabel.layer.compositingFilter = nil;
-    }
+    self.cowbellLabel.layer.compositingFilter = isLPMOn ? kCAFilterDestOut : nil;
+
+    [CATransaction commit];
 }
 
 - (void)viewDidLoad {
@@ -76,34 +85,26 @@ extern NSString* const kCAFilterDestOut;
     }
 }
 
-- (void)viewDidAppear:(BOOL)animated {
-    %orig(animated);
-
-    if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
-        // 绑定电量变化通知
-        [[NSNotificationCenter defaultCenter] removeObserver:self name:UIDeviceBatteryLevelDidChangeNotification object:nil];
-        [[NSNotificationCenter defaultCenter] addObserver:self 
-                                                 selector:@selector(updateCowbellState) 
-                                                     name:UIDeviceBatteryLevelDidChangeNotification 
-                                                   object:nil];
-        [self updateCowbellState];
-    }
-}
-
-- (void)viewDidDisappear:(BOOL)animated {
-    %orig(animated);
-
-    if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
-        // 出屏幕时解绑，零后台消耗
-        [[NSNotificationCenter defaultCenter] removeObserver:self name:UIDeviceBatteryLevelDidChangeNotification object:nil];
-    }
-}
-
+// 每次控制中心出现或布局更新（包含点击开关引发的重绘）时同步更新
 - (void)viewDidLayoutSubviews {
     %orig;
 
     if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
         [self updateCowbellState];
+    }
+}
+
+// 响应二级菜单展开与收起
+- (void)willTransitionToExpandedContentMode:(BOOL)expanded {
+    %orig(expanded);
+
+    if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
+        if (self.cowbellLabel) {
+            self.cowbellLabel.hidden = expanded;
+            if (!expanded) {
+                [self updateCowbellState];
+            }
+        }
     }
 }
 
