@@ -19,6 +19,9 @@ extern NSString* const kCAFilterDestOut;
 - (void)updateCowbellState;
 @end
 
+@interface CCUIContentModuleContentContainerView : UIView
+@end
+
 %hook CCUIContentModuleContainerViewController
 %property (nonatomic, retain) UILabel *cowbellLabel;
 
@@ -26,14 +29,14 @@ extern NSString* const kCAFilterDestOut;
 - (void)updateCowbellState {
     if (!self.cowbellLabel) return;
 
-    // 二级菜单展开时隐形，防止布局变形
+    // 1. 二级菜单展开时隐形
     if (self.isExpanded) {
         self.cowbellLabel.hidden = YES;
         return;
     }
     self.cowbellLabel.hidden = NO;
 
-    // 1. 读取电量
+    // 2. 读取电量
     float level = [[UIDevice currentDevice] batteryLevel];
     float safeLevel = (level < 0) ? 1.0 : level;
     int battery = (int)round(safeLevel * 100);
@@ -42,7 +45,7 @@ extern NSString* const kCAFilterDestOut;
     [self.cowbellLabel sizeToFit];
     [self.view bringSubviewToFront:self.cowbellLabel];
 
-    // 2. 禁用隐式动画，防止切回一级菜单时百分比“飞跃”
+    // 3. 禁用隐式动画，防止切回一级菜单时文字飞跃
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
 
@@ -58,9 +61,7 @@ extern NSString* const kCAFilterDestOut;
         labelH
     );
 
-    // 3. 原版 Cowbell 滤镜逻辑：
-    //    低电量开启（背景黄）：应用 kCAFilterDestOut 镂空成黑色
-    //    低电量关闭（背景灰）：必须将 compositingFilter 设为 nil，恢复普通白色！
+    // 4. 读取当前系统的低电量开关状态
     BOOL isLPMOn = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
     if (isLPMOn) {
         self.cowbellLabel.layer.compositingFilter = kCAFilterDestOut;
@@ -91,7 +92,6 @@ extern NSString* const kCAFilterDestOut;
     }
 }
 
-// 首次出现与布局更新时刷新
 - (void)viewDidLayoutSubviews {
     %orig;
 
@@ -100,7 +100,6 @@ extern NSString* const kCAFilterDestOut;
     }
 }
 
-// 捕获一级/二级菜单转场
 - (void)willTransitionToExpandedContentMode:(BOOL)expanded {
     %orig(expanded);
 
@@ -114,15 +113,27 @@ extern NSString* const kCAFilterDestOut;
     }
 }
 
-// 关键点：Hook 模块手势响应（零 Notification！纯靠点击事件驱动）
-- (void)_handleTapGestureRecognizer:(UIGestureRecognizer *)recognizer {
-    %orig(recognizer);
+%end
 
-    if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
-        // 延时 0.05 秒，确保系统的 isLowPowerModeEnabled 状态完成切换后立刻更新滤镜
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            [self updateCowbellState];
-        });
+// 关键点：Hook 低电量模块内部的实际 View 绘制入口
+// 点击按钮切换状态时，系统必定会调用这个 View 的 layoutSubviews 或 setNeedsLayout
+%hook CCUIContentModuleContentContainerView
+
+- (void)layoutSubviews {
+    %orig;
+
+    // 向上寻找 ContainerViewController 强制刷新 Label
+    for (UIResponder *r = self; r; r = r.nextResponder) {
+        if ([r isKindOfClass:NSClassFromString(@"CCUIContentModuleContainerViewController")]) {
+            CCUIContentModuleContainerViewController *vc = (CCUIContentModuleContainerViewController *)r;
+            if ([vc.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
+                // 确保在系统修改完 isLowPowerModeEnabled 后的下一帧刷新
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [vc updateCowbellState];
+                });
+            }
+            break;
+        }
     }
 }
 
