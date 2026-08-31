@@ -13,7 +13,7 @@ extern NSString* const kCAFilterDestOut;
 @interface CCUIContentModuleContainerViewController : UIViewController
 @property (nonatomic, readonly, copy) NSString *moduleIdentifier;
 @property (nonatomic, retain) UILabel *cowbellLabel;
-@property (nonatomic, retain) NSLayoutConstraint *bottomConstraint; // 底部约束引用
+@property (nonatomic, retain) NSLayoutConstraint *topConstraint; // 声明顶部约束引用
 @property (nonatomic, readonly, assign, getter=isExpanded) BOOL expanded;
 - (UIView *)contentView;
 - (void)updateCowbellState;
@@ -21,7 +21,7 @@ extern NSString* const kCAFilterDestOut;
 
 %hook CCUIContentModuleContainerViewController
 %property (nonatomic, retain) UILabel *cowbellLabel;
-%property (nonatomic, retain) NSLayoutConstraint *bottomConstraint;
+%property (nonatomic, retain) NSLayoutConstraint *topConstraint;
 
 %new
 - (void)updateCowbellState {
@@ -40,7 +40,7 @@ extern NSString* const kCAFilterDestOut;
     int battery = (int)round(safeLevel * 100);
     self.cowbellLabel.text = [NSString stringWithFormat:@"%i%%", battery];
 
-    // 2. 状态变色
+    // 2. 状态变色（防止纯镂空在特定背景下识别度低）
     BOOL isLPMOn = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
     self.cowbellLabel.textColor = isLPMOn ? [UIColor blackColor] : [UIColor whiteColor];
 }
@@ -68,32 +68,34 @@ extern NSString* const kCAFilterDestOut;
             label.backgroundColor = [UIColor clearColor];
             label.textColor = [UIColor whiteColor];
 
-            // 保持 Cowbell 经典镂空效果
+            // 保持 Cowbell 灵魂镂空
             CAFilter *filter = [CAFilter filterWithType:kCAFilterDestOut];
             label.layer.filters = @[filter];
 
-            // 重新开启 AutoLayout 约束，保证跟随系统 3D 矩阵一同缩放
+            // 开启 AutoLayout
             label.translatesAutoresizingMaskIntoConstraints = NO;
             [targetContainer addSubview:label];
             self.cowbellLabel = label;
 
+            // 改为锚定 topAnchor，保证跟手且不会跑偏到底部
+            // 默认一级卡片：距离顶部 40pt（正好在小电池下半部分）
             NSLayoutConstraint *centerX = [label.centerXAnchor constraintEqualToAnchor:targetContainer.centerXAnchor];
-            // 默认一级菜单底部向上偏移 -6.0
-            NSLayoutConstraint *bottom = [label.bottomAnchor constraintEqualToAnchor:targetContainer.bottomAnchor constant:-6.0];
-            self.bottomConstraint = bottom;
+            NSLayoutConstraint *top = [label.topAnchor constraintEqualToAnchor:targetContainer.topAnchor constant:40.0];
 
-            [NSLayoutConstraint activateConstraints:@[centerX, bottom]];
+            self.topConstraint = top;
+            [NSLayoutConstraint activateConstraints:@[centerX, top]];
         }
 
-        // 根据当前是否展开，实时赋予对应的约束偏移量
+        // 根据展开状态更新 topAnchor 的偏移量
         BOOL isExpandedState = NO;
         if ([self respondsToSelector:@selector(isExpanded)]) {
             isExpandedState = self.expanded;
         }
 
-        CGFloat targetConstant = isExpandedState ? -145.0 : -6.0; // -145 对应二级大电池下方，可根据实际视觉微调
-        if (self.bottomConstraint && self.bottomConstraint.constant != targetConstant) {
-            self.bottomConstraint.constant = targetConstant;
+        // 一级状态为 40.0，二级展开状态为 68.0（大电池下方）
+        CGFloat targetConstant = isExpandedState ? 68.0 : 40.0;
+        if (self.topConstraint && self.topConstraint.constant != targetConstant) {
+            self.topConstraint.constant = targetConstant;
         }
 
         [self updateCowbellState];
@@ -125,17 +127,17 @@ extern NSString* const kCAFilterDestOut;
     }
 }
 
-// 核心：在系统转场时，通过约束平滑过度，既保证跟手缩放，又让位置随着动画精准推到大电池下方
+// 展开/收起转场时，跟随系统的 CoreAnimation 视图拉伸同步更新约束
 - (void)willTransitionToExpandedContentMode:(BOOL)expanded {
     %orig(expanded);
 
     if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
-        if (!self.cowbellLabel || !self.bottomConstraint) return;
+        if (!self.cowbellLabel || !self.topConstraint) return;
 
-        // 展开时推到 -145.0（大电池下方），收起时恢复 -6.0
-        self.bottomConstraint.constant = expanded ? -145.0 : -6.0;
+        // 展开设置为 68.0，收起恢复 40.0
+        self.topConstraint.constant = expanded ? 68.0 : 40.0;
 
-        [UIView animateWithDuration:0.35 animations:^{
+        [UIView animateWithDuration:0.3 animations:^{
             [self.view layoutIfNeeded];
         }];
     }
