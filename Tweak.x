@@ -29,7 +29,6 @@ static char kCustomBatteryViewKey;
         self.lastPercent = -1;
         self.lastLowPowerState = NO;
 
-        // 1. 矢量外框 (使用 CAShapeLayer，走 GPU 矢量渲染，零 CPU 绘制消耗)
         _bodyLayer = [CAShapeLayer layer];
         _bodyLayer.fillColor = [UIColor clearColor].CGColor;
         [self.layer addSublayer:_bodyLayer];
@@ -37,12 +36,10 @@ static char kCustomBatteryViewKey;
         _capLayer = [CAShapeLayer layer];
         [self.layer addSublayer:_capLayer];
 
-        // 2. 内部填充条
         _fillView = [[UIView alloc] init];
         _fillView.clipsToBounds = YES;
         [self addSubview:_fillView];
 
-        // 3. 百分比 Label
         _percentLabel = [[UILabel alloc] init];
         _percentLabel.textAlignment = NSTextAlignmentCenter;
         [self addSubview:_percentLabel];
@@ -77,7 +74,6 @@ static char kCustomBatteryViewKey;
     int currentPercent = (int)round(level * 100);
     BOOL currentLowPower = [NSProcessInfo processInfo].isLowPowerModeEnabled;
 
-    // 状态未改变时直接跳过，零重复计算
     if (currentPercent == self.lastPercent && currentLowPower == self.lastLowPowerState) {
         return;
     }
@@ -85,7 +81,6 @@ static char kCustomBatteryViewKey;
     self.lastPercent = currentPercent;
     self.lastLowPowerState = currentLowPower;
 
-    // 直接刷新视图布局
     [self setNeedsLayout];
 }
 
@@ -100,7 +95,6 @@ static char kCustomBatteryViewKey;
     int currentPercent = (self.lastPercent >= 0) ? self.lastPercent : (int)round(level * 100);
     BOOL isLowPower = [NSProcessInfo processInfo].isLowPowerModeEnabled;
 
-    // 尺寸比例计算
     CGFloat scale = MIN(h / 72.0f, w / 64.0f);
     CGFloat totalW = 32.0f * scale;
     CGFloat iconH = 14.0f * scale;
@@ -111,11 +105,9 @@ static char kCustomBatteryViewKey;
     CGFloat bodyW = iconRect.size.width - (3.3f * scale);
     CGFloat padding = 2.0f * scale;
 
-    // 配色方案
     UIColor *themeColor = isLowPower ? [UIColor colorWithRed:1.0 green:0.8 blue:0.0 alpha:1.0] : [UIColor whiteColor];
     UIColor *strokeColor = isLowPower ? [UIColor blackColor] : [UIColor whiteColor];
 
-    // 更新 CAShapeLayer 矢量路径（纯内存矢量运算，无需重绘点阵）
     UIBezierPath *bodyPath = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(iconRect.origin.x, iconRect.origin.y, bodyW, iconRect.size.height) cornerRadius:4.2f * scale];
     self.bodyLayer.path = bodyPath.CGPath;
     self.bodyLayer.strokeColor = strokeColor.CGColor;
@@ -131,7 +123,6 @@ static char kCustomBatteryViewKey;
     self.capLayer.path = capPath.CGPath;
     self.capLayer.fillColor = strokeColor.CGColor;
 
-    // 更新电池电量填充条 Frame
     CGFloat currentFillW = (bodyW - padding * 2.0f) * level;
     CGFloat minFillW = 2.0f * scale;
     if (currentFillW < minFillW) currentFillW = minFillW;
@@ -140,7 +131,6 @@ static char kCustomBatteryViewKey;
     self.fillView.frame = CGRectMake(iconRect.origin.x + padding, iconRect.origin.y + padding, currentFillW, iconRect.size.height - padding * 2.0f);
     self.fillView.layer.cornerRadius = 2.0f * scale;
 
-    // 更新百分比 Label
     self.percentLabel.text = [NSString stringWithFormat:@"%d%%", currentPercent];
     self.percentLabel.textColor = isLowPower ? [UIColor blackColor] : [UIColor whiteColor];
     self.percentLabel.font = [UIFont systemFontOfSize:9.3f * scale weight:UIFontWeightRegular];
@@ -154,7 +144,6 @@ static char kCustomBatteryViewKey;
 - (void)layoutSubviews {
     %orig;
 
-    // 1. 使用关联对象记录匹配结果，避免每次 layout 都遍历 Responder 链
     NSNumber *isLowPowerTarget = objc_getAssociatedObject(self, &kIsLowPowerKey);
     if (!isLowPowerTarget) {
         NSString *pkgName = [self respondsToSelector:@selector(packageName)] ? self.packageName : @"";
@@ -173,23 +162,29 @@ static char kCustomBatteryViewKey;
 
     if (!isLowPowerTarget.boolValue) return;
 
-    // 2. 只有在首次初始化时将系统子视图隐藏，避免高频遍历 subviews
     CBCustomBatteryView *batteryView = objc_getAssociatedObject(self, &kCustomBatteryViewKey);
     if (!batteryView) {
         for (UIView *subview in self.subviews) {
-            subview.hidden = YES;
+            subview.alpha = 0.0f;
         }
 
         self.backgroundColor = [UIColor clearColor];
 
         batteryView = [[CBCustomBatteryView alloc] initWithFrame:self.bounds];
+        batteryView.userInteractionEnabled = NO;
         [self addSubview:batteryView];
         
         objc_setAssociatedObject(self, &kCustomBatteryViewKey, batteryView, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
 
-    // 3. 仅调整大小，不重复创建与遍历
+    for (UIView *subview in self.subviews) {
+        if (subview != batteryView) {
+            subview.alpha = 0.0f;
+        }
+    }
+
     batteryView.frame = self.bounds;
+    batteryView.alpha = 1.0f;
 }
 
 %end
