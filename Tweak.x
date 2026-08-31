@@ -4,40 +4,50 @@
 
     dispatch_async(dispatch_get_main_queue(), ^{
 
-        UIAlertController *alert =
-            [UIAlertController
-                alertControllerWithTitle:@"SimpleCowbell"
-                message:@"Tweak 已经成功加载 SpringBoard"
-                preferredStyle:UIAlertControllerStyleAlert];
-
-        [alert addAction:
-            [UIAlertAction
-                actionWithTitle:@"OK"
-                style:UIAlertActionStyleDefault
-                handler:nil]];
-
-
         UIWindow *window = nil;
 
-        for (UIWindow *w in
-             [UIApplication sharedApplication].windows) {
+        for (UIScene *scene in
+             [UIApplication sharedApplication].connectedScenes) {
 
-            if (w.isKeyWindow) {
-                window = w;
+            if (![scene isKindOfClass:[UIWindowScene class]]) {
+                continue;
+            }
+
+            UIWindowScene *windowScene =
+                (UIWindowScene *)scene;
+
+            if (windowScene.activationState !=
+                UISceneActivationStateForegroundActive) {
+                continue;
+            }
+
+            for (UIWindow *w in windowScene.windows) {
+
+                if (w.isKeyWindow) {
+                    window = w;
+                    break;
+                }
+            }
+
+            if (window) {
                 break;
             }
         }
 
-        if (!window) {
 
-            window =
-                [UIApplication sharedApplication]
-                    .windows.firstObject;
+        if (!window) {
+            return;
         }
 
 
         UIViewController *vc =
             window.rootViewController;
+
+
+        if (!vc) {
+            return;
+        }
+
 
         while (vc.presentedViewController) {
 
@@ -46,12 +56,23 @@
         }
 
 
-        if (vc) {
+        UIAlertController *alert =
+            [UIAlertController
+                alertControllerWithTitle:@"SimpleCowbell"
+                message:@"Tweak 已经成功加载 SpringBoard"
+                preferredStyle:UIAlertControllerStyleAlert];
 
-            [vc presentViewController:alert
-                             animated:YES
-                           completion:nil];
-        }
+
+        [alert addAction:
+            [UIAlertAction
+                actionWithTitle:@"OK"
+                style:UIAlertActionStyleDefault
+                handler:nil]];
+
+
+        [vc presentViewController:alert
+                         animated:YES
+                       completion:nil];
 
     });
 }
