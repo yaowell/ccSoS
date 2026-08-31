@@ -12,14 +12,31 @@ extern NSString* const kCAFilterDestOut;
 
 @interface CCUILowPowerModuleViewController : UIViewController
 @property (nonatomic, retain) UILabel *cowbellLabel;
-@property (nonatomic, assign, readonly) BOOL selected;
+@property (nonatomic, assign, getter=isSelected) BOOL selected;
 @end
+
+// 辅助函数：递归寻找子视图中的 CCUICAPackageView
+static UIView *findPackageView(UIView *view) {
+    if (!view) return nil;
+    if ([NSStringFromClass([view class]) containsString:@"CCUICAPackageView"]) {
+        return view;
+    }
+    for (UIView *subview in view.subviews) {
+        UIView *found = findPackageView(subview);
+        if (found) return found;
+    }
+    return nil;
+}
 
 %hook CCUILowPowerModuleViewController
 %property (nonatomic, retain) UILabel *cowbellLabel;
 
-- (void)viewDidLoad {
+- (void)viewDidLayoutSubviews {
     %orig;
+
+    // 找到真正的图标渲染容器 CCUICAPackageView
+    UIView *packageView = findPackageView(self.view);
+    if (!packageView) return;
 
     if (!self.cowbellLabel) {
         [UIDevice currentDevice].batteryMonitoringEnabled = YES;
@@ -28,47 +45,38 @@ extern NSString* const kCAFilterDestOut;
         label.textColor = [UIColor whiteColor];
         label.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
         label.textAlignment = NSTextAlignmentCenter;
-        label.userInteractionEnabled = NO; // 防止拦截按钮点击事件导致崩溃
+        label.userInteractionEnabled = NO;
 
-        // 默认配置 GPU 镂空属性
         label.layer.allowsGroupBlending = NO;
         label.layer.allowsGroupOpacity = YES;
 
-        [self.view addSubview:label];
+        [packageView addSubview:label];
         self.cowbellLabel = label;
     }
-}
 
-- (void)viewDidLayoutSubviews {
-    %orig;
+    // 确定父容器存在且正常加载
+    if (self.cowbellLabel && self.cowbellLabel.superview) {
+        float level = [UIDevice currentDevice].batteryLevel;
+        int battery = (level < 0) ? 100 : (int)round(level * 100);
+        self.cowbellLabel.text = [NSString stringWithFormat:@"%i%%", battery];
+        [self.cowbellLabel sizeToFit];
 
-    if (!self.cowbellLabel) return;
+        // 基于 packageView 的真实尺寸进行相对居中定位
+        CGFloat w = packageView.bounds.size.width;
+        CGFloat h = packageView.bounds.size.height;
+        if (w > 0 && h > 0) {
+            self.cowbellLabel.center = CGPointMake(w / 2.0, h * 0.72);
+        }
 
-    // 1. 获取实时电量
-    float level = [UIDevice currentDevice].batteryLevel;
-    int battery = (level < 0) ? 100 : (int)round(level * 100);
-    self.cowbellLabel.text = [NSString stringWithFormat:@"%i%%", battery];
-    [self.cowbellLabel sizeToFit];
+        // 获取按钮选中状态，同步滤镜
+        BOOL isSelected = NO;
+        if ([self respondsToSelector:@selector(isSelected)]) {
+            isSelected = [self isSelected];
+        }
 
-    // 2. 布局：居中偏下
-    CGFloat w = self.view.bounds.size.width;
-    CGFloat h = self.view.bounds.size.height;
-    if (w > 0 && h > 0) {
-        self.cowbellLabel.center = CGPointMake(w / 2.0, h * 0.72);
+        self.cowbellLabel.layer.compositingFilter = isSelected ? kCAFilterDestOut : nil;
+        [packageView bringSubviewToFront:self.cowbellLabel];
     }
-
-    // 3. 安全获取选中状态（防止 Unrecognized Selector 崩溃）
-    BOOL isSelected = NO;
-    if ([self respondsToSelector:@selector(isSelected)]) {
-        isSelected = [self selected];
-    } else if ([self respondsToSelector:@selector(isExpanded)]) {
-        isSelected = ((BOOL (*)(id, SEL))objc_msgSend)(self, @selector(isExpanded));
-    }
-
-    // 4. 根据选中状态切换滤镜（开启低电量时用镂空，关闭时用原色）
-    self.cowbellLabel.layer.compositingFilter = isSelected ? kCAFilterDestOut : nil;
-
-    [self.view bringSubviewToFront:self.cowbellLabel];
 }
 
 %end
