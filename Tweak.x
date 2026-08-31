@@ -13,6 +13,7 @@ extern NSString* const kCAFilterDestOut;
 @interface CCUIContentModuleContainerViewController : UIViewController
 @property (nonatomic, readonly, copy) NSString *moduleIdentifier;
 @property (nonatomic, retain) UILabel *cowbellLabel;
+@property (nonatomic, retain) NSLayoutConstraint *bottomConstraint; // 底部约束引用
 @property (nonatomic, readonly, assign, getter=isExpanded) BOOL expanded;
 - (UIView *)contentView;
 - (void)updateCowbellState;
@@ -20,6 +21,7 @@ extern NSString* const kCAFilterDestOut;
 
 %hook CCUIContentModuleContainerViewController
 %property (nonatomic, retain) UILabel *cowbellLabel;
+%property (nonatomic, retain) NSLayoutConstraint *bottomConstraint;
 
 %new
 - (void)updateCowbellState {
@@ -66,45 +68,32 @@ extern NSString* const kCAFilterDestOut;
             label.backgroundColor = [UIColor clearColor];
             label.textColor = [UIColor whiteColor];
 
+            // 保持 Cowbell 经典镂空效果
             CAFilter *filter = [CAFilter filterWithType:kCAFilterDestOut];
             label.layer.filters = @[filter];
 
+            // 重新开启 AutoLayout 约束，保证跟随系统 3D 矩阵一同缩放
+            label.translatesAutoresizingMaskIntoConstraints = NO;
             [targetContainer addSubview:label];
             self.cowbellLabel = label;
+
+            NSLayoutConstraint *centerX = [label.centerXAnchor constraintEqualToAnchor:targetContainer.centerXAnchor];
+            // 默认一级菜单底部向上偏移 -6.0
+            NSLayoutConstraint *bottom = [label.bottomAnchor constraintEqualToAnchor:targetContainer.bottomAnchor constant:-6.0];
+            self.bottomConstraint = bottom;
+
+            [NSLayoutConstraint activateConstraints:@[centerX, bottom]];
         }
 
-        if (self.cowbellLabel) {
-            BOOL isExpandedState = NO;
-            if ([self respondsToSelector:@selector(isExpanded)]) {
-                isExpandedState = self.expanded;
-            }
+        // 根据当前是否展开，实时赋予对应的约束偏移量
+        BOOL isExpandedState = NO;
+        if ([self respondsToSelector:@selector(isExpanded)]) {
+            isExpandedState = self.expanded;
+        }
 
-            CGFloat containerW = targetContainer.bounds.size.width;
-            CGFloat containerH = targetContainer.bounds.size.height;
-
-            [self.cowbellLabel sizeToFit];
-            CGFloat labelW = self.cowbellLabel.frame.size.width;
-            CGFloat labelH = self.cowbellLabel.frame.size.height;
-
-            if (isExpandedState || containerH > 200.0) {
-                // 二级展开状态：把文字强行放在顶部大电池正下方（Y轴设为 82）
-                self.cowbellLabel.translatesAutoresizingMaskIntoConstraints = YES;
-                self.cowbellLabel.frame = CGRectMake(
-                    (containerW - labelW) / 2.0,
-                    82.0, // 此处即为大电池下方的位置
-                    labelW,
-                    labelH
-                );
-            } else {
-                // 一级小卡片状态：强行放置在底部
-                self.cowbellLabel.translatesAutoresizingMaskIntoConstraints = YES;
-                self.cowbellLabel.frame = CGRectMake(
-                    (containerW - labelW) / 2.0,
-                    containerH - labelH - 6.0,
-                    labelW,
-                    labelH
-                );
-            }
+        CGFloat targetConstant = isExpandedState ? -145.0 : -6.0; // -145 对应二级大电池下方，可根据实际视觉微调
+        if (self.bottomConstraint && self.bottomConstraint.constant != targetConstant) {
+            self.bottomConstraint.constant = targetConstant;
         }
 
         [self updateCowbellState];
@@ -133,6 +122,22 @@ extern NSString* const kCAFilterDestOut;
         NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
         [nc removeObserver:self name:NSProcessInfoPowerStateDidChangeNotification object:nil];
         [nc removeObserver:self name:UIDeviceBatteryLevelDidChangeNotification object:nil];
+    }
+}
+
+// 核心：在系统转场时，通过约束平滑过度，既保证跟手缩放，又让位置随着动画精准推到大电池下方
+- (void)willTransitionToExpandedContentMode:(BOOL)expanded {
+    %orig(expanded);
+
+    if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
+        if (!self.cowbellLabel || !self.bottomConstraint) return;
+
+        // 展开时推到 -145.0（大电池下方），收起时恢复 -6.0
+        self.bottomConstraint.constant = expanded ? -145.0 : -6.0;
+
+        [UIView animateWithDuration:0.35 animations:^{
+            [self.view layoutIfNeeded];
+        }];
     }
 }
 
