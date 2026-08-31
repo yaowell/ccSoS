@@ -4,7 +4,6 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
-// 声明私有类与私有常量
 extern NSString* const kCAFilterDestOut;
 
 @interface CAFilter : NSObject
@@ -32,34 +31,37 @@ extern NSString* const kCAFilterDestOut;
 
     if (!self.cowbellLabel) return;
 
-    // 1. 读取电量
+    // 1. 读取当前电量
     float level = [[UIDevice currentDevice] batteryLevel];
     float safeLevel = (level < 0) ? 1.0 : level;
     int battery = (int)round(safeLevel * 100);
     self.cowbellLabel.text = [NSString stringWithFormat:@"%i%%", battery];
 
-    // 2. 位置计算
+    // 2. 判断低电量模式切换颜色（防止 DestOut 在部分系统版本下失效，做了颜色双重保险）
+    BOOL isLPMOn = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
+    self.cowbellLabel.textColor = isLPMOn ? [UIColor blackColor] : [UIColor whiteColor];
+
+    // 3. 计算位置
     UIView *targetContainer = [self respondsToSelector:@selector(contentView)] ? [self contentView] : self.view;
+
+    CGFloat parentW = targetContainer.bounds.size.width;
+    CGFloat parentH = targetContainer.bounds.size.height;
+
+    // 展开二级卡片时隐藏
+    if (parentW > 100.0 || parentH > 100.0) {
+        self.cowbellLabel.hidden = YES;
+        return;
+    }
 
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
 
     [self.cowbellLabel sizeToFit];
 
-    CGFloat parentW = targetContainer.bounds.size.width;
-    CGFloat parentH = targetContainer.bounds.size.height;
-
-    // 展开大卡片时直接隐藏，防止在二级菜单残留
-    if (parentW > 100.0 || parentH > 100.0) {
-        self.cowbellLabel.alpha = 0.0;
-        [CATransaction commit];
-        return;
-    }
-
     CGFloat labelW = self.cowbellLabel.frame.size.width;
     CGFloat labelH = self.cowbellLabel.frame.size.height;
 
-    // 定位在图标内部下半部分，绝不骑线
+    // 精准放置在卡片下半部分
     self.cowbellLabel.frame = CGRectMake(
         (parentW - labelW) / 2.0,
         parentH - labelH - 6.0,
@@ -67,7 +69,7 @@ extern NSString* const kCAFilterDestOut;
         labelH
     );
 
-    self.cowbellLabel.alpha = 1.0;
+    self.cowbellLabel.hidden = NO;
 
     [CATransaction commit];
 }
@@ -95,7 +97,7 @@ extern NSString* const kCAFilterDestOut;
             label.backgroundColor = [UIColor clearColor];
             label.textColor = [UIColor whiteColor];
 
-            // 镂空核心：开启 kCAFilterDestOut 滤镜
+            // 保持镂空滤镜
             CAFilter *filter = [CAFilter filterWithType:kCAFilterDestOut];
             label.layer.filters = @[filter];
 
@@ -129,6 +131,22 @@ extern NSString* const kCAFilterDestOut;
         NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
         [nc removeObserver:self name:NSProcessInfoPowerStateDidChangeNotification object:nil];
         [nc removeObserver:self name:UIDeviceBatteryLevelDidChangeNotification object:nil];
+    }
+}
+
+// 解决切回不同步的关键：在转场开始时，禁止在动画闭包里重新计算 frame，直接保持 hidden 切换
+- (void)willTransitionToExpandedContentMode:(BOOL)expanded {
+    %orig(expanded);
+
+    if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
+        if (!self.cowbellLabel) return;
+
+        if (expanded) {
+            self.cowbellLabel.hidden = YES;
+        } else {
+            // 切回一级菜单：直接解除隐藏，不触发 sizeToFit 打断系统原生转场缩放矩阵
+            self.cowbellLabel.hidden = NO;
+        }
     }
 }
 
