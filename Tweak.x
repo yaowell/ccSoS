@@ -10,8 +10,10 @@
 - (void)updateCowbellState;
 @end
 
+// 补全接口声明，解决 Clang 编译报错
 @interface CCUIContentModuleContainerViewController : UIViewController
 @property (nonatomic, readonly, copy) NSString *moduleIdentifier;
+- (void)cowbell_updateSubviews;
 @end
 
 // 1. Hook 底层按钮组件：文字直接绑定在图标内部
@@ -62,7 +64,6 @@
 
 - (void)layoutSubviews {
     %orig;
-    // 如果该按钮内部包含 cowbellLabel，随按钮重新布局
     if (self.cowbellLabel) {
         [self updateCowbellState];
     }
