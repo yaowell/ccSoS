@@ -1,6 +1,10 @@
 #import <UIKit/UIKit.h>
 
-// 递归打印视图树与 Frame
+// 1. 补全类接口声明，告知 Clang 它继承自 UIView
+@interface CCUIContentModuleContainerView : UIView
+@end
+
+// 2. 递归打印视图树与 Frame
 static void printViewHierarchy(UIView *view, int depth) {
     if (!view) return;
     NSMutableString *indent = [NSMutableString string];
@@ -22,8 +26,10 @@ static void printViewHierarchy(UIView *view, int depth) {
 
 - (void)layoutSubviews {
     %orig;
-    // 只要判断模块说明包含 LowPower，就递归打印整个容器内部
-    if ([self.description containsString:@"LowPower"] || [self.description containsString:@"lowpower"]) {
+    
+    // 使用 description 检查是否为低电量模块
+    NSString *desc = [self description];
+    if ([desc containsString:@"LowPower"] || [desc containsString:@"lowpower"]) {
         NSLog(@"[Cowbell_Debug] === Found LowPower Container ===");
         printViewHierarchy(self, 0);
     }
