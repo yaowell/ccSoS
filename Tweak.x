@@ -1,81 +1,194 @@
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h>
 
-@interface CCUIToggleViewController : UIViewController
+@interface CCUICAPackageView : UIView
 @end
 
-%hook CCUIToggleViewController
 
-- (void)viewWillAppear:(BOOL)animated {
-
-    %orig(animated);
+static void SCWriteLog(NSString *text) {
 
     NSString *path =
-        @"/var/mobile/Documents/SimpleCowbell_Test.txt";
+        @"/var/mobile/Documents/SimpleCowbell_CAPackage.txt";
 
-    NSString *text =
-        [NSString stringWithFormat:
-            @"HOOK OK\n"
-            @"class=%@\n"
-            @"bounds=%@\n"
-            @"window=%@\n"
-            @"time=%@\n\n",
-            NSStringFromClass([self class]),
-            NSStringFromCGRect(self.view.bounds),
-            self.view.window,
-            [NSDate date]
-        ];
+    NSFileHandle *file =
+        [NSFileHandle fileHandleForWritingAtPath:path];
 
-    NSError *error = nil;
+    if (!file) {
 
-    BOOL success =
         [text writeToFile:path
-              atomically:YES
-                encoding:NSUTF8StringEncoding
-                   error:&error];
-
-
-    /*
-     * 不管成功还是失败，
-     * 都尝试创建一个最简单的标记文件。
-     */
-
-    NSString *flagPath =
-        @"/var/mobile/Documents/SimpleCowbell_HOOK.txt";
-
-    NSString *flag =
-        @"CCUIToggleViewController viewWillAppear TRIGGERED\n";
-
-    NSError *flagError = nil;
-
-    BOOL flagSuccess =
-        [flag writeToFile:flagPath
                atomically:YES
                  encoding:NSUTF8StringEncoding
-                    error:&flagError];
+                    error:nil];
+
+        return;
+    }
+
+    [file seekToEndOfFile];
+
+    NSData *data =
+        [text dataUsingEncoding:NSUTF8StringEncoding];
+
+    [file writeData:data];
+
+    [file closeFile];
+}
+
+
+%hook CCUICAPackageView
+
+- (void)layoutSubviews {
+
+    %orig;
+
+
+    NSMutableString *output =
+        [NSMutableString string];
+
+
+    [output appendFormat:
+        @"\n========== CAPACKAGE ==========\n"];
+
+
+    [output appendFormat:
+        @"self class = %@\n",
+        NSStringFromClass([self class])
+    ];
+
+
+    [output appendFormat:
+        @"frame = %@\n",
+        NSStringFromCGRect(self.frame)
+    ];
+
+
+    [output appendFormat:
+        @"bounds = %@\n",
+        NSStringFromCGRect(self.bounds)
+    ];
+
+
+    [output appendFormat:
+        @"packageName = %@\n",
+        [self respondsToSelector:@selector(packageName)]
+        ? [self valueForKey:@"packageName"]
+        : @"<no packageName>"
+    ];
 
 
     /*
-     * 再尝试追加一个结果文件。
+     * ========================================================
+     * 父视图链
+     * ========================================================
      */
 
-    NSString *result =
-        [NSString stringWithFormat:
-            @"writeSuccess=%d\n"
-            @"writeError=%@\n"
-            @"flagSuccess=%d\n"
-            @"flagError=%@\n",
-            success,
-            error,
-            flagSuccess,
-            flagError
+    [output appendString:
+        @"\n--- SUPERVIEW CHAIN ---\n"
+    ];
+
+
+    UIView *superview =
+        self.superview;
+
+
+    int level = 0;
+
+
+    while (superview && level < 15) {
+
+        [output appendFormat:
+            @"[%d] %@ frame=%@\n",
+            level,
+            NSStringFromClass(
+                [superview class]
+            ),
+            NSStringFromCGRect(
+                superview.frame
+            )
         ];
 
 
-    [result writeToFile:
-        @"/var/mobile/Documents/SimpleCowbell_Result.txt"
-             atomically:YES
-               encoding:NSUTF8StringEncoding
-                  error:nil];
+        superview =
+            superview.superview;
+
+        level++;
+    }
+
+
+    /*
+     * ========================================================
+     * UIResponder 响应链
+     * ========================================================
+     */
+
+    [output appendString:
+        @"\n--- RESPONDER CHAIN ---\n"
+    ];
+
+
+    UIResponder *responder =
+        self.nextResponder;
+
+
+    level = 0;
+
+
+    while (responder && level < 20) {
+
+        [output appendFormat:
+            @"[%d] %@\n",
+            level,
+            NSStringFromClass(
+                [responder class]
+            )
+        ];
+
+
+        responder =
+            responder.nextResponder;
+
+        level++;
+    }
+
+
+    /*
+     * ========================================================
+     * 当前 View 的直接 subviews
+     * ========================================================
+     */
+
+    [output appendString:
+        @"\n--- SUBVIEWS ---\n"
+    ];
+
+
+    int index = 0;
+
+
+    for (UIView *subview in self.subviews) {
+
+        [output appendFormat:
+            @"[%d] %@ frame=%@ tag=%ld\n",
+            index,
+            NSStringFromClass(
+                [subview class]
+            ),
+            NSStringFromCGRect(
+                subview.frame
+            ),
+            (long)subview.tag
+        ];
+
+
+        index++;
+    }
+
+
+    [output appendString:
+        @"\n==============================\n"
+    ];
+
+
+    SCWriteLog(output);
 }
 
 %end
