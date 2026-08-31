@@ -26,14 +26,14 @@ extern NSString* const kCAFilterDestOut;
 - (void)updateCowbellState {
     if (!self.cowbellLabel) return;
 
-    // 1. 二级菜单展开时隐形
+    // 二级菜单展开时隐形，防止布局变形
     if (self.isExpanded) {
         self.cowbellLabel.hidden = YES;
         return;
     }
     self.cowbellLabel.hidden = NO;
 
-    // 2. 获取电量
+    // 1. 读取电量
     float level = [[UIDevice currentDevice] batteryLevel];
     float safeLevel = (level < 0) ? 1.0 : level;
     int battery = (int)round(safeLevel * 100);
@@ -42,7 +42,7 @@ extern NSString* const kCAFilterDestOut;
     [self.cowbellLabel sizeToFit];
     [self.view bringSubviewToFront:self.cowbellLabel];
 
-    // 3. 禁用隐式动画
+    // 2. 禁用隐式动画，防止切回一级菜单时百分比“飞跃”
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
 
@@ -58,9 +58,15 @@ extern NSString* const kCAFilterDestOut;
         labelH
     );
 
-    // 4. 实时判定系统低电量状态并更新 GPU 滤镜
+    // 3. 原版 Cowbell 滤镜逻辑：
+    //    低电量开启（背景黄）：应用 kCAFilterDestOut 镂空成黑色
+    //    低电量关闭（背景灰）：必须将 compositingFilter 设为 nil，恢复普通白色！
     BOOL isLPMOn = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
-    self.cowbellLabel.layer.compositingFilter = isLPMOn ? kCAFilterDestOut : nil;
+    if (isLPMOn) {
+        self.cowbellLabel.layer.compositingFilter = kCAFilterDestOut;
+    } else {
+        self.cowbellLabel.layer.compositingFilter = nil;
+    }
 
     [CATransaction commit];
 }
@@ -85,6 +91,7 @@ extern NSString* const kCAFilterDestOut;
     }
 }
 
+// 首次出现与布局更新时刷新
 - (void)viewDidLayoutSubviews {
     %orig;
 
@@ -93,6 +100,7 @@ extern NSString* const kCAFilterDestOut;
     }
 }
 
+// 捕获一级/二级菜单转场
 - (void)willTransitionToExpandedContentMode:(BOOL)expanded {
     %orig(expanded);
 
@@ -106,27 +114,14 @@ extern NSString* const kCAFilterDestOut;
     }
 }
 
-%end
+// 关键点：Hook 模块手势响应（零 Notification！纯靠点击事件驱动）
+- (void)_handleTapGestureRecognizer:(UIGestureRecognizer *)recognizer {
+    %orig(recognizer);
 
-// 关键修复：直接 Hook 控制中心低电量 Module 自身的点击动作入口
-%hook CCUILowPowerModule
-
-- (void)setSelected:(BOOL)selected {
-    %orig(selected);
-
-    // 点击发生的瞬间，通知容器 VC 主动刷新滤镜
-    UIViewController *contentVC = (UIViewController *)self;
-    UIViewController *parentVC = contentVC.parentViewController;
-
-    // 向上寻找 ContainerViewController
-    while (parentVC && ![parentVC isKindOfClass:NSClassFromString(@"CCUIContentModuleContainerViewController")]) {
-        parentVC = parentVC.parentViewController;
-    }
-
-    if ([parentVC isKindOfClass:NSClassFromString(@"CCUIContentModuleContainerViewController")]) {
-        CCUIContentModuleContainerViewController *containerVC = (CCUIContentModuleContainerViewController *)parentVC;
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [containerVC updateCowbellState];
+    if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
+        // 延时 0.05 秒，确保系统的 isLowPowerModeEnabled 状态完成切换后立刻更新滤镜
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [self updateCowbellState];
         });
     }
 }
