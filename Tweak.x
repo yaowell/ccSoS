@@ -1,78 +1,37 @@
 #import <UIKit/UIKit.h>
 
-%ctor {
+@interface CCUIToggleViewController : UIViewController
+@end
 
-    dispatch_async(dispatch_get_main_queue(), ^{
+%hook CCUIToggleViewController
 
-        UIWindow *window = nil;
+- (void)viewDidAppear:(BOOL)animated {
 
-        for (UIScene *scene in
-             [UIApplication sharedApplication].connectedScenes) {
+    %orig(animated);
 
-            if (![scene isKindOfClass:[UIWindowScene class]]) {
-                continue;
-            }
+    UIAlertController *alert =
+        [UIAlertController
+            alertControllerWithTitle:@"SimpleCowbell"
+            message:@"CCUIToggleViewController viewDidAppear 被触发"
+            preferredStyle:UIAlertControllerStyleAlert];
 
-            UIWindowScene *windowScene =
-                (UIWindowScene *)scene;
+    [alert addAction:
+        [UIAlertAction
+            actionWithTitle:@"OK"
+            style:UIAlertActionStyleDefault
+            handler:nil]];
 
-            if (windowScene.activationState !=
-                UISceneActivationStateForegroundActive) {
-                continue;
-            }
+    UIViewController *vc = self;
 
-            for (UIWindow *w in windowScene.windows) {
+    while (vc.presentedViewController) {
+        vc = vc.presentedViewController;
+    }
 
-                if (w.isKeyWindow) {
-                    window = w;
-                    break;
-                }
-            }
-
-            if (window) {
-                break;
-            }
-        }
-
-
-        if (!window) {
-            return;
-        }
-
-
-        UIViewController *vc =
-            window.rootViewController;
-
-
-        if (!vc) {
-            return;
-        }
-
-
-        while (vc.presentedViewController) {
-
-            vc =
-                vc.presentedViewController;
-        }
-
-
-        UIAlertController *alert =
-            [UIAlertController
-                alertControllerWithTitle:@"SimpleCowbell"
-                message:@"Tweak 已经成功加载 SpringBoard"
-                preferredStyle:UIAlertControllerStyleAlert];
-
-
-        [alert addAction:
-            [UIAlertAction
-                actionWithTitle:@"OK"
-                style:UIAlertActionStyleDefault
-                handler:nil]];
-
-
+    if (vc) {
         [vc presentViewController:alert
                          animated:YES
                        completion:nil];
-
-    });
+    }
 }
+
+%end
