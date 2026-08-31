@@ -1,5 +1,9 @@
 #import <UIKit/UIKit.h>
 
+// 屏蔽 Clang 的 Deprecated 警告
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+
 @interface CCUIContentModuleContainerView : UIView
 @end
 
@@ -32,14 +36,8 @@ static BOOL hasShownAlert = NO;
         collectHierarchy(self, 0, hierarchyText);
         
         dispatch_async(dispatch_get_main_queue(), ^{
-            UIWindow *window = nil;
-            for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
-                if (scene.activationState == UISceneActivationStateForegroundActive && [scene isKindOfClass:[UIWindowScene class]]) {
-                    window = ((UIWindowScene *)scene).windows.firstObject;
-                    break;
-                }
-            }
-            if (!window) window = [UIApplication sharedApplication].windows.firstObject;
+            UIWindow *window = [[UIApplication sharedApplication] keyWindow];
+            if (!window) window = [[UIApplication sharedApplication] windows].firstObject;
 
             UIViewController *rootVC = window.rootViewController;
             while (rootVC.presentedViewController) {
@@ -58,3 +56,5 @@ static BOOL hasShownAlert = NO;
 }
 
 %end
+
+#pragma clang diagnostic pop
