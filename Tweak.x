@@ -1,11 +1,59 @@
 #import <UIKit/UIKit.h>
+#import <Foundation/Foundation.h>
+#import <objc/runtime.h>
+#import <unistd.h>
 
 @interface CCUICAPackageView : UIView
 @property (nonatomic, copy) NSString *packageName;
 @end
 
-static void CBWriteLog(NSString *text) {
-    NSString *path = @"/var/mobile/Documents/CBDEBUG.txt";
+
+static NSString *CBLogPath(void) {
+    return @"/var/mobile/Media/Downloads/CBDEBUG.txt";
+}
+
+
+static void CBWriteLog(NSString *format, ...) {
+
+    NSString *path = CBLogPath();
+
+    va_list args;
+    va_start(args, format);
+
+    NSString *message =
+        [[NSString alloc] initWithFormat:format arguments:args];
+
+    va_end(args);
+
+
+    NSString *time =
+        [[NSDate date] description];
+
+    NSString *line =
+        [NSString stringWithFormat:
+            @"\n[%@] PID:%d %@\n",
+            time,
+            getpid(),
+            message];
+
+
+    /*
+     * 防止日志无限变大
+     */
+    NSDictionary *attrs =
+        [[NSFileManager defaultManager]
+            attributesOfItemAtPath:path
+                             error:nil];
+
+    unsigned long long fileSize =
+        [attrs fileSize];
+
+    if (fileSize > 300 * 1024) {
+        [[NSFileManager defaultManager]
+            removeItemAtPath:path
+                       error:nil];
+    }
+
 
     NSString *old =
         [NSString stringWithContentsOfFile:path
@@ -16,83 +64,139 @@ static void CBWriteLog(NSString *text) {
         old = @"";
     }
 
-    NSString *newText =
-        [old stringByAppendingFormat:@"%@\n", text];
 
-    [newText writeToFile:path
-              atomically:NO
-                encoding:NSUTF8StringEncoding
-                   error:nil];
+    NSString *result =
+        [old stringByAppendingString:line];
+
+
+    [result writeToFile:path
+             atomically:YES
+               encoding:NSUTF8StringEncoding
+                  error:nil];
 }
+
+
+/*
+ * 获取整个父级层级
+ */
+static NSString *CBHierarchy(UIView *view) {
+
+    NSMutableString *result =
+        [NSMutableString string];
+
+    UIView *current = view;
+
+    int level = 0;
+
+    while (current && level < 12) {
+
+        [result appendFormat:
+            @"\n  [%d] %@ frame=%@ hidden=%d alpha=%.2f",
+            level,
+            NSStringFromClass([current class]),
+            NSStringFromCGRect(current.frame),
+            current.hidden,
+            current.alpha
+        ];
+
+        current = current.superview;
+        level++;
+    }
+
+    return result;
+}
+
+
+/*
+ * tweak 加载测试
+ */
+%ctor {
+
+    CBWriteLog(
+        @"==============================\n"
+         "SimpleCowbell DEBUG START\n"
+         "Process=%@\n"
+         "==============================",
+        [[NSProcessInfo processInfo] processName]
+    );
+}
+
 
 %hook CCUICAPackageView
 
+
 - (void)didMoveToWindow {
+
     %orig;
 
-    UIView *v = (UIView *)self;
+    UIView *view = (UIView *)self;
 
-    CBWriteLog([NSString stringWithFormat:
-        @"\n===== didMoveToWindow =====\n"
-         "class=%@\n"
+    CBWriteLog(
+        @"\n========== didMoveToWindow ==========\n"
+         "packageName=%@\n"
          "window=%@\n"
-         "superview=%@\n"
-         "frame=%@\n"
-         "hidden=%d\n"
-         "alpha=%.2f",
-        NSStringFromClass([v class]),
-        v.window,
-        v.superview,
-        NSStringFromCGRect(v.frame),
-        v.hidden,
-        v.alpha
-    ]);
+         "hierarchy:%@",
+        self.packageName,
+        view.window,
+        CBHierarchy(view)
+    );
 }
 
+
 - (void)layoutSubviews {
+
     %orig;
 
-    UIView *v = (UIView *)self;
+    UIView *view = (UIView *)self;
 
-    CBWriteLog([NSString stringWithFormat:
-        @"\n===== layoutSubviews =====\n"
-         "class=%@\n"
+    CBWriteLog(
+        @"\n========== layoutSubviews ==========\n"
+         "packageName=%@\n"
          "frame=%@\n"
          "hidden=%d\n"
          "alpha=%.2f\n"
-         "superview=%@",
-        NSStringFromClass([v class]),
-        NSStringFromCGRect(v.frame),
-        v.hidden,
-        v.alpha,
-        v.superview
-    ]);
+         "hierarchy:%@",
+        self.packageName,
+        NSStringFromCGRect(view.frame),
+        view.hidden,
+        view.alpha,
+        CBHierarchy(view)
+    );
 }
+
 
 - (void)setHidden:(BOOL)hidden {
 
-    UIView *v = (UIView *)self;
+    UIView *view = (UIView *)self;
 
-    CBWriteLog([NSString stringWithFormat:
-        @"===== setHidden ===== class=%@ hidden=%d",
-        NSStringFromClass([v class]),
+    CBWriteLog(
+        @"========== setHidden ==========\n"
+         "packageName=%@\n"
+         "old=%d new=%d",
+        self.packageName,
+        view.hidden,
         hidden
-    ]);
+    );
 
     %orig;
 }
+
 
 - (void)setAlpha:(CGFloat)alpha {
 
-    UIView *v = (UIView *)self;
+    UIView *view = (UIView *)self;
 
-    CBWriteLog([NSString stringWithFormat:
-        @"===== setAlpha ===== class=%@ alpha=%.2f",
-        NSStringFromClass([v class]),
+    CBWriteLog(
+        @"========== setAlpha ==========\n"
+         "packageName=%@\n"
+         "old=%.2f new=%.2f",
+        self.packageName,
+        view.alpha,
         alpha
-    ]);
+    );
 
     %orig;
 }
+
 
 %end
