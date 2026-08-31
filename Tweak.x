@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 
 extern NSString *const kCAFilterDestOut;
@@ -6,7 +7,29 @@ extern NSString *const kCAFilterDestOut;
 static const NSInteger kPercentTag = 0xBB22;
 
 
+/*
+ * ============================================================
+ * CCUIToggleViewController
+ *
+ * 必须完整声明。
+ * 否则 Theos/Clang 只知道 @class，
+ * self.view / [self class] 都会报错。
+ * ============================================================
+ */
+
+@interface CCUIToggleViewController : UIViewController
+
+@end
+
+
+/*
+ * ============================================================
+ * CCUIToggleViewController
+ * ============================================================
+ */
+
 %hook CCUIToggleViewController
+
 
 - (void)viewWillAppear:(BOOL)animated {
 
@@ -15,13 +38,13 @@ static const NSInteger kPercentTag = 0xBB22;
 
     /*
      * ========================================================
-     * 读取 CCUIToggleViewController 的 _module
+     * 读取 _module
      * ========================================================
      */
 
     Ivar modIvar =
         class_getInstanceVariable(
-            [self class],
+            [CCUIToggleViewController class],
             "_module"
         );
 
@@ -29,12 +52,18 @@ static const NSInteger kPercentTag = 0xBB22;
     if (!modIvar) {
 
         NSLog(
-            @"[CowbellTest] _module NOT FOUND"
+            @"[SimpleCowbell] _module NOT FOUND"
         );
 
         return;
     }
 
+
+    /*
+     * ========================================================
+     * 从当前 VC 实例读取 _module
+     * ========================================================
+     */
 
     id module =
         object_getIvar(
@@ -46,7 +75,7 @@ static const NSInteger kPercentTag = 0xBB22;
     if (!module) {
 
         NSLog(
-            @"[CowbellTest] _module = nil"
+            @"[SimpleCowbell] _module = nil"
         );
 
         return;
@@ -60,7 +89,7 @@ static const NSInteger kPercentTag = 0xBB22;
 
 
     NSLog(
-        @"[CowbellTest] module = %@",
+        @"[SimpleCowbell] module = %@",
         moduleClass
     );
 
@@ -79,13 +108,13 @@ static const NSInteger kPercentTag = 0xBB22;
 
 
     NSLog(
-        @"[CowbellTest] CCUILowPowerModule FOUND"
+        @"[SimpleCowbell] CCUILowPowerModule FOUND"
     );
 
 
     /*
      * ========================================================
-     * 获取真正显示中的 view
+     * 获取真正的 VC View
      * ========================================================
      */
 
@@ -96,7 +125,7 @@ static const NSInteger kPercentTag = 0xBB22;
     if (!view) {
 
         NSLog(
-            @"[CowbellTest] self.view = nil"
+            @"[SimpleCowbell] self.view = nil"
         );
 
         return;
@@ -104,22 +133,40 @@ static const NSInteger kPercentTag = 0xBB22;
 
 
     NSLog(
-        @"[CowbellTest] view=%@ bounds=%@ window=%@",
-        view,
-        NSStringFromCGRect(view.bounds),
+        @"[SimpleCowbell] view=%@",
+        view
+    );
+
+
+    NSLog(
+        @"[SimpleCowbell] bounds=%@",
+        NSStringFromCGRect(
+            view.bounds
+        )
+    );
+
+
+    NSLog(
+        @"[SimpleCowbell] window=%@",
         view.window
     );
 
 
     /*
      * ========================================================
-     * 创建百分比 Label
+     * 查找已有 Label
      * ========================================================
      */
 
     UILabel *label =
         [view viewWithTag:kPercentTag];
 
+
+    /*
+     * ========================================================
+     * 创建 Label
+     * ========================================================
+     */
 
     if (!label) {
 
@@ -137,25 +184,29 @@ static const NSInteger kPercentTag = 0xBB22;
 
         label.font =
             [UIFont systemFontOfSize:
-                10.0
+                10.0f
                 weight:UIFontWeightSemibold];
 
 
-        label.textColor =
-            [UIColor whiteColor];
-
-
-        label.layer.allowsGroupBlending =
-            NO;
-
+        /*
+         * ====================================================
+         * Cowbell 镂空效果
+         * ====================================================
+         */
 
         label.layer.allowsGroupOpacity =
             YES;
 
 
         /*
-         * 保留 Cowbell 的镂空效果
+         * allowsGroupBlending 是私有属性，
+         * 不能直接写：
+         *
+         * label.layer.allowsGroupBlending
+         *
+         * 所以这里不再使用。
          */
+
 
         label.layer.compositingFilter =
             kCAFilterDestOut;
@@ -165,14 +216,14 @@ static const NSInteger kPercentTag = 0xBB22;
 
 
         NSLog(
-            @"[CowbellTest] Label CREATED"
+            @"[SimpleCowbell] Label CREATED"
         );
     }
 
 
     /*
      * ========================================================
-     * 读取真实电量
+     * 读取当前真实电量
      * ========================================================
      */
 
@@ -189,16 +240,31 @@ static const NSInteger kPercentTag = 0xBB22;
 
 
     NSLog(
-        @"[CowbellTest] batteryLevel=%f",
+        @"[SimpleCowbell] batteryLevel = %f",
         level
     );
 
 
+    /*
+     * 如果系统返回 -1，
+     * 说明当前无法读取电量。
+     */
+
     if (level < 0.0f) {
+
+        NSLog(
+            @"[SimpleCowbell] batteryLevel INVALID"
+        );
 
         return;
     }
 
+
+    /*
+     * ========================================================
+     * 转换百分比
+     * ========================================================
+     */
 
     int percent =
         (int)round(
@@ -242,10 +308,18 @@ static const NSInteger kPercentTag = 0xBB22;
 
 
     NSLog(
-        @"[CowbellTest] Label frame=%@ text=%@",
-        NSStringFromCGRect(label.frame),
+        @"[SimpleCowbell] Label frame=%@",
+        NSStringFromCGRect(
+            label.frame
+        )
+    );
+
+
+    NSLog(
+        @"[SimpleCowbell] Label text=%@",
         label.text
     );
 }
+
 
 %end
