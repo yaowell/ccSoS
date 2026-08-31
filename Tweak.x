@@ -10,14 +10,9 @@ extern NSString* const kCAFilterDestOut;
 @property (nonatomic, assign) BOOL allowsGroupBlending;
 @end
 
-// 视图层：控制中心按钮视图
-@interface CCUIButtonModuleView : UIView
-@property (nonatomic, assign, getter=isSelected) BOOL selected;
-@end
-
-// 控制器层：iOS 16 低电量专用 VC
 @interface CCUILowPowerModuleViewController : UIViewController
 @property (nonatomic, retain) UILabel *cowbellLabel;
+@property (nonatomic, assign, readonly) BOOL selected;
 @end
 
 %hook CCUILowPowerModuleViewController
@@ -33,11 +28,11 @@ extern NSString* const kCAFilterDestOut;
         label.textColor = [UIColor whiteColor];
         label.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
         label.textAlignment = NSTextAlignmentCenter;
+        label.userInteractionEnabled = NO; // 防止拦截按钮点击事件导致崩溃
 
-        // Cowbell 核心：GPU 混合镂空
+        // 默认配置 GPU 镂空属性
         label.layer.allowsGroupBlending = NO;
         label.layer.allowsGroupOpacity = YES;
-        label.layer.compositingFilter = kCAFilterDestOut;
 
         [self.view addSubview:label];
         self.cowbellLabel = label;
@@ -47,43 +42,33 @@ extern NSString* const kCAFilterDestOut;
 - (void)viewDidLayoutSubviews {
     %orig;
 
-    if (self.cowbellLabel) {
-        // 获取实时电量
-        float level = [UIDevice currentDevice].batteryLevel;
-        int battery = (level < 0) ? 100 : (int)round(level * 100);
-        self.cowbellLabel.text = [NSString stringWithFormat:@"%i%%", battery];
-        [self.cowbellLabel sizeToFit];
+    if (!self.cowbellLabel) return;
 
-        // 放置在按钮区域内部偏下方 (72x72 bounds 内)
-        CGFloat w = self.view.bounds.size.width;
-        CGFloat h = self.view.bounds.size.height;
+    // 1. 获取实时电量
+    float level = [UIDevice currentDevice].batteryLevel;
+    int battery = (level < 0) ? 100 : (int)round(level * 100);
+    self.cowbellLabel.text = [NSString stringWithFormat:@"%i%%", battery];
+    [self.cowbellLabel sizeToFit];
+
+    // 2. 布局：居中偏下
+    CGFloat w = self.view.bounds.size.width;
+    CGFloat h = self.view.bounds.size.height;
+    if (w > 0 && h > 0) {
         self.cowbellLabel.center = CGPointMake(w / 2.0, h * 0.72);
-
-        [self.view bringSubviewToFront:self.cowbellLabel];
-    }
-}
-
-%end
-
-// 动态处理选中/未选中状态下的滤镜切换
-%hook CCUIButtonModuleView
-
-- (void)setSelected:(BOOL)selected {
-    %orig(selected);
-
-    // 寻找 LowPower 控制器关联的 Label 动态切换 CompositingFilter
-    UIResponder *responder = self.nextResponder;
-    while (responder && ![responder isKindOfClass:NSClassFromString(@"CCUILowPowerModuleViewController")]) {
-        responder = responder.nextResponder;
     }
 
-    if (responder) {
-        CCUILowPowerModuleViewController *vc = (CCUILowPowerModuleViewController *)responder;
-        if (vc.cowbellLabel) {
-            // 按钮开启时（黄色/白色背景）启用 kCAFilterDestOut 镂空；关闭时恢复白色正常字体
-            vc.cowbellLabel.layer.compositingFilter = selected ? kCAFilterDestOut : nil;
-        }
+    // 3. 安全获取选中状态（防止 Unrecognized Selector 崩溃）
+    BOOL isSelected = NO;
+    if ([self respondsToSelector:@selector(isSelected)]) {
+        isSelected = [self selected];
+    } else if ([self respondsToSelector:@selector(isExpanded)]) {
+        isSelected = ((BOOL (*)(id, SEL))objc_msgSend)(self, @selector(isExpanded));
     }
+
+    // 4. 根据选中状态切换滤镜（开启低电量时用镂空，关闭时用原色）
+    self.cowbellLabel.layer.compositingFilter = isSelected ? kCAFilterDestOut : nil;
+
+    [self.view bringSubviewToFront:self.cowbellLabel];
 }
 
 %end
