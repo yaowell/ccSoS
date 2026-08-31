@@ -10,91 +10,78 @@ extern NSString* const kCAFilterDestOut;
 @property (nonatomic, assign) BOOL allowsGroupBlending;
 @end
 
-@interface CCUIRoundButton : UIView
-@property (nonatomic, assign) BOOL selected;
+// 视图层：控制中心按钮视图
+@interface CCUIButtonModuleView : UIView
+@property (nonatomic, assign, getter=isSelected) BOOL selected;
 @end
 
-@interface CCUICAPackageView : UIView
-@property (nonatomic, copy) NSString *packageName;
+// 控制器层：iOS 16 低电量专用 VC
+@interface CCUILowPowerModuleViewController : UIViewController
+@property (nonatomic, retain) UILabel *cowbellLabel;
 @end
 
-static char kCowbellLabelKey;
-static char kIsLowPowerKey;
+%hook CCUILowPowerModuleViewController
+%property (nonatomic, retain) UILabel *cowbellLabel;
 
-// 1. 在低电量图标的包裹容器中注入镂空 Label
-%hook CCUICAPackageView
-
-- (void)layoutSubviews {
+- (void)viewDidLoad {
     %orig;
 
-    // 缓存模块判断，避免每次 layout 重复匹配
-    NSNumber *isLowPower = objc_getAssociatedObject(self, &kIsLowPowerKey);
-    if (!isLowPower) {
-        BOOL matched = NO;
-        NSString *pkgName = [self respondsToSelector:@selector(packageName)] ? self.packageName : @"";
-        if ([pkgName containsString:@"LowPower"] || [pkgName containsString:@"Battery"]) {
-            matched = YES;
-        } else {
-            for (UIResponder *r = self; r; r = r.nextResponder) {
-                NSString *cls = NSStringFromClass([r class]);
-                if ([cls containsString:@"LowPower"]) {
-                    matched = YES;
-                    break;
-                }
-            }
-        }
-        isLowPower = @(matched);
-        objc_setAssociatedObject(self, &kIsLowPowerKey, isLowPower, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
-
-    if (!isLowPower.boolValue) return;
-
-    UILabel *label = objc_getAssociatedObject(self, &kCowbellLabelKey);
-    if (!label) {
+    if (!self.cowbellLabel) {
         [UIDevice currentDevice].batteryMonitoringEnabled = YES;
 
-        label = [[UILabel alloc] init];
+        UILabel *label = [[UILabel alloc] init];
         label.textColor = [UIColor whiteColor];
         label.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
         label.textAlignment = NSTextAlignmentCenter;
 
-        // 原版 Cowbell 核心：GPU 混合镂空
+        // Cowbell 核心：GPU 混合镂空
         label.layer.allowsGroupBlending = NO;
         label.layer.allowsGroupOpacity = YES;
         label.layer.compositingFilter = kCAFilterDestOut;
 
-        [self addSubview:label];
-        objc_setAssociatedObject(self, &kCowbellLabelKey, label, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [self.view addSubview:label];
+        self.cowbellLabel = label;
     }
+}
 
-    // 实时更新电量
-    float level = [UIDevice currentDevice].batteryLevel;
-    int battery = (level < 0) ? 100 : (int)round(level * 100);
-    label.text = [NSString stringWithFormat:@"%i%%", battery];
-    [label sizeToFit];
+- (void)viewDidLayoutSubviews {
+    %orig;
 
-    // 居中靠下摆放
-    CGFloat w = self.bounds.size.width;
-    CGFloat h = self.bounds.size.height;
-    label.center = CGPointMake(w / 2.0, h * 0.72);
+    if (self.cowbellLabel) {
+        // 获取实时电量
+        float level = [UIDevice currentDevice].batteryLevel;
+        int battery = (level < 0) ? 100 : (int)round(level * 100);
+        self.cowbellLabel.text = [NSString stringWithFormat:@"%i%%", battery];
+        [self.cowbellLabel sizeToFit];
+
+        // 放置在按钮区域内部偏下方 (72x72 bounds 内)
+        CGFloat w = self.view.bounds.size.width;
+        CGFloat h = self.view.bounds.size.height;
+        self.cowbellLabel.center = CGPointMake(w / 2.0, h * 0.72);
+
+        [self.view bringSubviewToFront:self.cowbellLabel];
+    }
 }
 
 %end
 
-// 2. 监听圆按钮点击状态，动态切换镂空滤镜
-%hook CCUIRoundButton
+// 动态处理选中/未选中状态下的滤镜切换
+%hook CCUIButtonModuleView
 
 - (void)setSelected:(BOOL)selected {
     %orig(selected);
 
-    // 遍历子视图寻找并切换 Cowbell Label 的滤镜
-    for (UIView *subview in self.subviews) {
-        if ([NSStringFromClass([subview class]) containsString:@"CCUICAPackageView"]) {
-            UILabel *label = objc_getAssociatedObject(subview, &kCowbellLabelKey);
-            if (label) {
-                // 开启低电量（黄色/白色背景）时使用 kCAFilterDestOut 镂空；未开启时正常显示白字
-                label.layer.compositingFilter = selected ? kCAFilterDestOut : nil;
-            }
+    // 寻找 LowPower 控制器关联的 Label 动态切换 CompositingFilter
+    UIResponder *responder = self.nextResponder;
+    while (responder && ![responder isKindOfClass:NSClassFromString(@"CCUILowPowerModuleViewController")]) {
+        responder = responder.nextResponder;
+    }
+
+    if (responder) {
+        CCUILowPowerModuleViewController *vc = (CCUILowPowerModuleViewController *)responder;
+        if (vc.cowbellLabel) {
+            // 按钮开启时（黄色/白色背景）启用 kCAFilterDestOut 镂空；关闭时恢复白色正常字体
+            vc.cowbellLabel.layer.compositingFilter = selected ? kCAFilterDestOut : nil;
         }
     }
 }
