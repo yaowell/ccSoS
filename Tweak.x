@@ -26,14 +26,14 @@ extern NSString* const kCAFilterDestOut;
 - (void)updateCowbellState {
     if (!self.cowbellLabel) return;
 
-    // 二级菜单展开时直接隐藏，防止布局变形
+    // 1. 二级菜单展开时隐形，防止布局错位
     if (self.isExpanded) {
         self.cowbellLabel.hidden = YES;
         return;
     }
     self.cowbellLabel.hidden = NO;
 
-    // 1. 读取当前电量
+    // 2. 读取电量
     float level = [[UIDevice currentDevice] batteryLevel];
     float safeLevel = (level < 0) ? 1.0 : level;
     int battery = (int)round(safeLevel * 100);
@@ -42,7 +42,7 @@ extern NSString* const kCAFilterDestOut;
     [self.cowbellLabel sizeToFit];
     [self.view bringSubviewToFront:self.cowbellLabel];
 
-    // 2. 禁用隐式动画，防止切回一级菜单时文字“飞跃”
+    // 3. 禁用隐式动画，防止切回一级菜单时文字“飞跃”
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
 
@@ -58,7 +58,7 @@ extern NSString* const kCAFilterDestOut;
         labelH
     );
 
-    // 3. 根据低电量状态实时切换 GPU 镂空滤镜
+    // 4. 根据当前系统低电量状态实时切换 GPU 镂空滤镜
     BOOL isLPMOn = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
     self.cowbellLabel.layer.compositingFilter = isLPMOn ? kCAFilterDestOut : nil;
 
@@ -85,7 +85,6 @@ extern NSString* const kCAFilterDestOut;
     }
 }
 
-// 每次控制中心出现或布局更新（包含点击开关引发的重绘）时同步更新
 - (void)viewDidLayoutSubviews {
     %orig;
 
@@ -94,7 +93,19 @@ extern NSString* const kCAFilterDestOut;
     }
 }
 
-// 响应二级菜单展开与收起
+// 关键点 1：Hook 容器的选中状态切换（点击开关时系统会触发此方法）
+- (void)setSelected:(BOOL)selected {
+    %orig(selected);
+
+    if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
+        // 主线程微延时，等待系统切换完低电量状态后立刻更新滤镜
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self updateCowbellState];
+        });
+    }
+}
+
+// 关键点 2：响应二级菜单展开与收起
 - (void)willTransitionToExpandedContentMode:(BOOL)expanded {
     %orig(expanded);
 
