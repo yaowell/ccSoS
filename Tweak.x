@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
+#import <objc/runtime.h>
 
 extern NSString* const kCAFilterDestOut;
 
@@ -9,66 +10,92 @@ extern NSString* const kCAFilterDestOut;
 @property (nonatomic, assign) BOOL allowsGroupBlending;
 @end
 
-@interface CCUIRoundButton : UIControl
-@property (nonatomic, retain) UILabel *cowbellLabel;
-@property (nonatomic, assign) BOOL isLowPowerModule;
+@interface CCUIRoundButton : UIView
+@property (nonatomic, assign) BOOL selected;
 @end
 
-%hook CCUIRoundButton
-%property (nonatomic, retain) UILabel *cowbellLabel;
-%property (nonatomic, assign) BOOL isLowPowerModule;
+@interface CCUICAPackageView : UIView
+@property (nonatomic, copy) NSString *packageName;
+@end
 
-- (instancetype)initWithFrame:(CGRect)frame {
-    id orig = %orig;
-    if (orig) {
-        // 延迟到下一个 Runloop 检查响应链，精准识别低电量模块，不走高频循环
-        dispatch_async(dispatch_get_main_queue(), ^{
-            for (UIResponder *responder = self; responder; responder = responder.nextResponder) {
-                NSString *clsName = NSStringFromClass([responder class]);
-                if ([clsName containsString:@"LowPower"]) {
-                    self.isLowPowerModule = YES;
-                    break;
-                }
-            }
-            
-            if (self.isLowPowerModule && !self.cowbellLabel) {
-                [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+static char kCowbellLabelKey;
+static char kIsLowPowerKey;
 
-                self.cowbellLabel = [[UILabel alloc] init];
-                self.cowbellLabel.textColor = [UIColor whiteColor];
-                self.cowbellLabel.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
-                
-                // 原版精髓：GPU 混合镂空
-                self.cowbellLabel.layer.allowsGroupBlending = NO;
-                self.cowbellLabel.layer.allowsGroupOpacity = YES;
-                self.cowbellLabel.layer.compositingFilter = kCAFilterDestOut;
-                
-                [self addSubview:self.cowbellLabel];
-                [self setNeedsLayout];
-            }
-        });
-    }
-    return orig;
-}
+// 1. 在低电量图标的包裹容器中注入镂空 Label
+%hook CCUICAPackageView
 
 - (void)layoutSubviews {
     %orig;
 
-    if (self.isLowPowerModule && self.cowbellLabel) {
-        float level = [UIDevice currentDevice].batteryLevel;
-        int battery = (level < 0) ? 100 : (int)round(level * 100);
+    // 缓存模块判断，避免每次 layout 重复匹配
+    NSNumber *isLowPower = objc_getAssociatedObject(self, &kIsLowPowerKey);
+    if (!isLowPower) {
+        BOOL matched = NO;
+        NSString *pkgName = [self respondsToSelector:@selector(packageName)] ? self.packageName : @"";
+        if ([pkgName containsString:@"LowPower"] || [pkgName containsString:@"Battery"]) {
+            matched = YES;
+        } else {
+            for (UIResponder *r = self; r; r = r.nextResponder) {
+                NSString *cls = NSStringFromClass([r class]);
+                if ([cls containsString:@"LowPower"]) {
+                    matched = YES;
+                    break;
+                }
+            }
+        }
+        isLowPower = @(matched);
+        objc_setAssociatedObject(self, &kIsLowPowerKey, isLowPower, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
 
-        self.cowbellLabel.text = [NSString stringWithFormat:@"%i%%", battery];
-        [self.cowbellLabel sizeToFit];
+    if (!isLowPower.boolValue) return;
 
-        // 放置在图标底部中央
-        CGFloat w = self.bounds.size.width;
-        CGFloat h = self.bounds.size.height;
-        self.cowbellLabel.center = CGPointMake(w / 2.0, h * 0.72);
-        
-        // 根据当前按钮选中状态动态切换滤镜
-        BOOL selected = self.selected;
-        self.cowbellLabel.layer.compositingFilter = selected ? kCAFilterDestOut : nil;
+    UILabel *label = objc_getAssociatedObject(self, &kCowbellLabelKey);
+    if (!label) {
+        [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+
+        label = [[UILabel alloc] init];
+        label.textColor = [UIColor whiteColor];
+        label.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
+        label.textAlignment = NSTextAlignmentCenter;
+
+        // 原版 Cowbell 核心：GPU 混合镂空
+        label.layer.allowsGroupBlending = NO;
+        label.layer.allowsGroupOpacity = YES;
+        label.layer.compositingFilter = kCAFilterDestOut;
+
+        [self addSubview:label];
+        objc_setAssociatedObject(self, &kCowbellLabelKey, label, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+
+    // 实时更新电量
+    float level = [UIDevice currentDevice].batteryLevel;
+    int battery = (level < 0) ? 100 : (int)round(level * 100);
+    label.text = [NSString stringWithFormat:@"%i%%", battery];
+    [label sizeToFit];
+
+    // 居中靠下摆放
+    CGFloat w = self.bounds.size.width;
+    CGFloat h = self.bounds.size.height;
+    label.center = CGPointMake(w / 2.0, h * 0.72);
+}
+
+%end
+
+// 2. 监听圆按钮点击状态，动态切换镂空滤镜
+%hook CCUIRoundButton
+
+- (void)setSelected:(BOOL)selected {
+    %orig(selected);
+
+    // 遍历子视图寻找并切换 Cowbell Label 的滤镜
+    for (UIView *subview in self.subviews) {
+        if ([NSStringFromClass([subview class]) containsString:@"CCUICAPackageView"]) {
+            UILabel *label = objc_getAssociatedObject(subview, &kCowbellLabelKey);
+            if (label) {
+                // 开启低电量（黄色/白色背景）时使用 kCAFilterDestOut 镂空；未开启时正常显示白字
+                label.layer.compositingFilter = selected ? kCAFilterDestOut : nil;
+            }
+        }
     }
 }
 
