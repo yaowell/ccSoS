@@ -1,6 +1,5 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
-#import <objc/runtime.h>
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -11,211 +10,489 @@ extern NSString* const kCAFilterDestOut;
 + (instancetype)filterWithType:(NSString *)type;
 @end
 
-@interface CCUIContentModuleContainerView : UIView
-@property (nonatomic, strong) NSString *moduleIdentifier;
-@property (nonatomic, strong) UILabel *cbPercentLabel;
-- (void)cb_updatePercentText;
-- (BOOL)cb_isLowPowerModule;
+
+@interface CCUIContentModuleContainerViewController : UIViewController
+
+@property (nonatomic, readonly, copy) NSString *moduleIdentifier;
+@property (nonatomic, retain) UILabel *cowbellLabel;
+
+- (UIView *)contentView;
+- (void)updateCowbellState;
+
 @end
 
-%hook CCUIContentModuleContainerView
 
-%property (nonatomic, strong) UILabel *cbPercentLabel;
+%hook CCUIContentModuleContainerViewController
 
-- (void)layoutSubviews {
+%property (nonatomic, retain) UILabel *cowbellLabel;
+
+
+/*
+ ============================================================
+                    一级菜单百分比位置
+ ============================================================
+
+ 只调这个数字。
+
+ 数值越大：
+     百分比越往下
+
+ 数值越小：
+     百分比越往上
+
+ 例如：
+
+     4.0  往上
+     6.0  往上一点
+     8.0  当前
+    10.0  往下一点
+
+ ============================================================
+ */
+
+static CGFloat const COWBELL_COLLAPSED_OFFSET = 8.0;
+
+
+/*
+ ============================================================
+                    更新百分比
+ ============================================================
+ */
+
+%new
+- (void)updateCowbellState
+{
+    if (![NSThread isMainThread]) {
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self updateCowbellState];
+        });
+
+        return;
+    }
+
+
+    if (!self.cowbellLabel) {
+        return;
+    }
+
+
+    /*
+     --------------------------------------------------------
+                       获取电量
+     --------------------------------------------------------
+     */
+
+    float level =
+        [[UIDevice currentDevice] batteryLevel];
+
+
+    float safeLevel =
+        (level < 0) ? 1.0 : level;
+
+
+    int battery =
+        (int)round(safeLevel * 100);
+
+
+    self.cowbellLabel.text =
+        [NSString stringWithFormat:@"%i%%", battery];
+
+
+    /*
+     --------------------------------------------------------
+                       低电量模式颜色
+     --------------------------------------------------------
+     */
+
+    BOOL isLPMOn =
+        [[NSProcessInfo processInfo]
+         isLowPowerModeEnabled];
+
+
+    self.cowbellLabel.textColor =
+        isLPMOn
+        ? [UIColor blackColor]
+        : [UIColor whiteColor];
+}
+
+
+/*
+ ============================================================
+                        ViewDidLoad
+ ============================================================
+ */
+
+- (void)viewDidLoad
+{
     %orig;
 
-    // 1. 非低电量模块直接隐藏并返回
-    if (![self cb_isLowPowerModule]) {
-        if (self.cbPercentLabel) {
-            self.cbPercentLabel.hidden = YES;
-        }
+
+    if ([self.moduleIdentifier
+         isEqualToString:
+         @"com.apple.control-center.LowPowerModule"]) {
+
+        [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+    }
+}
+
+
+/*
+ ============================================================
+                       创建百分比
+ ============================================================
+ */
+
+- (void)viewDidLayoutSubviews
+{
+    %orig;
+
+
+    if (![self.moduleIdentifier
+          isEqualToString:
+          @"com.apple.control-center.LowPowerModule"]) {
+
         return;
     }
 
-    CGFloat width = self.bounds.size.width;
-    CGFloat height = self.bounds.size.height;
 
-    if (width <= 0 || height <= 0 || width > 100 || height > 100) {
+    UIView *targetContainer =
+        [self respondsToSelector:@selector(contentView)]
+        ? [self contentView]
+        : self.view;
+
+
+    if (!targetContainer) {
         return;
     }
 
-    // 2. 电池图标完全保持原生位置，不动它
-    for (UIView *subview in self.subviews) {
-        if (subview != self.cbPercentLabel) {
-            subview.transform = CGAffineTransformIdentity;
-        }
-    }
 
-    // 3. 创建百分比
-    if (!self.cbPercentLabel) {
+    /*
+     ========================================================
+                    第一次创建百分比
+     ========================================================
+     */
 
-        UILabel *lab =
-            [[UILabel alloc] initWithFrame:
-             CGRectMake(0, height - 22, width, 12)];
+    if (!self.cowbellLabel) {
 
-        lab.font =
+        UILabel *label =
+            [[UILabel alloc] init];
+
+
+        label.font =
             [UIFont systemFontOfSize:10
                               weight:UIFontWeightBold];
 
-        lab.textAlignment =
+
+        label.textAlignment =
             NSTextAlignmentCenter;
 
-        lab.userInteractionEnabled = NO;
 
-        lab.backgroundColor =
+        label.userInteractionEnabled = NO;
+
+
+        label.backgroundColor =
             [UIColor clearColor];
+
+
+        label.textColor =
+            [UIColor whiteColor];
 
 
         /*
          ====================================================
-                    Cowbell 镂空效果
-         ====================================================
-
-         DestOut 会把百分比所在位置从下面的内容中
-         “挖掉”，形成镂空效果。
-
-         这就是之前 Cowbell 使用的方式。
+                       Cowbell 镂空效果
          ====================================================
          */
 
         CAFilter *filter =
             [CAFilter filterWithType:kCAFilterDestOut];
 
-        lab.layer.filters = @[filter];
+
+        label.layer.filters =
+            @[filter];
 
 
-        self.cbPercentLabel = lab;
+        /*
+         ----------------------------------------------------
+                     AutoLayout
+         ----------------------------------------------------
+         */
 
-        [self addSubview:lab];
+        label.translatesAutoresizingMaskIntoConstraints =
+            NO;
 
+
+        [targetContainer addSubview:label];
+
+
+        self.cowbellLabel = label;
+
+
+        /*
+         ====================================================
+                    一级菜单独立位置
+         ====================================================
+         */
+
+        [NSLayoutConstraint activateConstraints:@[
+
+            [label.centerXAnchor
+             constraintEqualToAnchor:
+             targetContainer.centerXAnchor],
+
+            [label.centerYAnchor
+             constraintEqualToAnchor:
+             targetContainer.centerYAnchor
+             constant:COWBELL_COLLAPSED_OFFSET]
+
+        ]];
+
+
+        /*
+         ====================================================
+                       开启电量监控
+         ====================================================
+         */
 
         [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+    }
 
 
-        // 电量变化
-        [[NSNotificationCenter defaultCenter]
-            addObserver:self
-               selector:@selector(cb_updatePercentText)
+    /*
+     ========================================================
+     注意：
+
+     这里故意没有：
+
+         bringSubviewToFront
+
+     这是这次修复的关键。
+
+     百分比保持在原来的 View 层级中，
+     这样打开其他模块二级菜单时，
+     系统毛玻璃可以正常覆盖它。
+
+     ========================================================
+     */
+
+    [self updateCowbellState];
+}
+
+
+/*
+ ============================================================
+                       ViewDidAppear
+ ============================================================
+ */
+
+- (void)viewDidAppear:(BOOL)animated
+{
+    %orig(animated);
+
+
+    if ([self.moduleIdentifier
+         isEqualToString:
+         @"com.apple.control-center.LowPowerModule"]) {
+
+
+        NSNotificationCenter *nc =
+            [NSNotificationCenter defaultCenter];
+
+
+        /*
+         ----------------------------------------------------
+                    防止重复注册
+         ----------------------------------------------------
+         */
+
+        [nc removeObserver:self
+                      name:NSProcessInfoPowerStateDidChangeNotification
+                    object:nil];
+
+
+        [nc removeObserver:self
+                      name:UIDeviceBatteryLevelDidChangeNotification
+                    object:nil];
+
+
+        /*
+         ----------------------------------------------------
+                       低电量模式变化
+         ----------------------------------------------------
+         */
+
+        [nc addObserver:self
+               selector:@selector(updateCowbellState)
+                   name:NSProcessInfoPowerStateDidChangeNotification
+                 object:nil];
+
+
+        /*
+         ----------------------------------------------------
+                       电量变化
+         ----------------------------------------------------
+         */
+
+        [nc addObserver:self
+               selector:@selector(updateCowbellState)
                    name:UIDeviceBatteryLevelDidChangeNotification
                  object:nil];
 
 
-        // 低电量模式变化
-        [[NSNotificationCenter defaultCenter]
-            addObserver:self
-               selector:@selector(cb_updatePercentText)
-                   name:NSProcessInfoPowerStateDidChangeNotification
-                 object:nil];
-
-    } else {
-
-        self.cbPercentLabel.hidden = NO;
-
-        self.cbPercentLabel.frame =
-            CGRectMake(0, height - 22, width, 12);
+        [self updateCowbellState];
     }
-
-
-    // 保证百分比在最上层
-    [self bringSubviewToFront:self.cbPercentLabel];
-
-
-    // 刷新电量
-    [self cb_updatePercentText];
 }
 
 
-%new
-- (BOOL)cb_isLowPowerModule {
+/*
+ ============================================================
+                     ViewDidDisappear
+ ============================================================
+ */
 
-    if ([self respondsToSelector:@selector(moduleIdentifier)]) {
+- (void)viewDidDisappear:(BOOL)animated
+{
+    %orig(animated);
 
-        NSString *modID =
-            [self performSelector:@selector(moduleIdentifier)];
 
-        if ([modID isEqualToString:
-             @"com.apple.control-center.LowPowerModule"] ||
-            [modID containsString:@"LowPowerModule"]) {
+    if ([self.moduleIdentifier
+         isEqualToString:
+         @"com.apple.control-center.LowPowerModule"]) {
 
-            return YES;
-        }
+
+        NSNotificationCenter *nc =
+            [NSNotificationCenter defaultCenter];
+
+
+        [nc removeObserver:self
+                      name:NSProcessInfoPowerStateDidChangeNotification
+                    object:nil];
+
+
+        [nc removeObserver:self
+                      name:UIDeviceBatteryLevelDidChangeNotification
+                    object:nil];
     }
-
-
-    UIResponder *responder = self;
-
-    while (responder) {
-
-        NSString *clsName =
-            NSStringFromClass([responder class]);
-
-        if ([clsName containsString:
-             @"CCUILowPowerModeModule"]) {
-
-            return YES;
-        }
-
-        responder = [responder nextResponder];
-    }
-
-    return NO;
 }
 
 
-%new
-- (void)cb_updatePercentText {
+/*
+ ============================================================
+                  一级 <-> 二级菜单
+ ============================================================
 
-    dispatch_async(dispatch_get_main_queue(), ^{
+ 这里只处理低电量模块自己的展开。
 
-        if (!self.cbPercentLabel) {
-            return;
-        }
+ 一级：
+     百分比正常显示
 
+ 二级：
+     百分比隐藏
+
+ 返回一级：
+     百分比同步恢复
+
+ ============================================================
+ */
+
+- (void)willTransitionToExpandedContentMode:(BOOL)expanded
+{
+    %orig(expanded);
+
+
+    if (![self.moduleIdentifier
+          isEqualToString:
+          @"com.apple.control-center.LowPowerModule"]) {
+
+        return;
+    }
+
+
+    if (!self.cowbellLabel) {
+        return;
+    }
+
+
+    /*
+     ========================================================
+                         一级 → 二级
+     ========================================================
+     */
+
+    if (expanded) {
 
         /*
-         ====================================================
-                     获取当前电量
-         ====================================================
+         ----------------------------------------------------
+             先同步淡出，再彻底隐藏
+         ----------------------------------------------------
          */
 
-        float level =
-            [UIDevice currentDevice].batteryLevel;
+        [UIView animateWithDuration:0.20
+                              delay:0.0
+                            options:
+             UIViewAnimationOptionBeginFromCurrentState |
+             UIViewAnimationOptionAllowUserInteraction
+                         animations:^{
 
+            self.cowbellLabel.alpha = 0.0;
 
-        int percent =
-            (level >= 0)
-            ? (int)round(level * 100.0f)
-            : 100;
-
-
-        self.cbPercentLabel.text =
-            [NSString stringWithFormat:@"%d%%", percent];
-
-
-        /*
-         ====================================================
-                     颜色逻辑保持原样
-         ====================================================
-         */
-
-        BOOL isLowPowerMode =
-            [NSProcessInfo processInfo].isLowPowerModeEnabled;
-
-
-        if (isLowPowerMode) {
-
-            self.cbPercentLabel.textColor =
-                [UIColor blackColor];
-
-        } else {
-
-            self.cbPercentLabel.textColor =
-                [UIColor whiteColor];
         }
-    });
+                         completion:^(BOOL finished) {
+
+            self.cowbellLabel.hidden = YES;
+            self.cowbellLabel.alpha = 0.0;
+        }];
+
+
+        return;
+    }
+
+
+    /*
+     ========================================================
+                         二级 → 一级
+     ========================================================
+     */
+
+    /*
+     --------------------------------------------------------
+       先解除 hidden，但保持透明。
+
+       这样不会出现：
+
+           图标先出现
+           ↓
+           百分比晚一点才出现
+
+       而是百分比已经准备好，
+       跟随一级菜单转场一起出现。
+     --------------------------------------------------------
+     */
+
+    self.cowbellLabel.hidden = NO;
+    self.cowbellLabel.alpha = 0.0;
+
+
+    [UIView animateWithDuration:0.20
+                          delay:0.0
+                        options:
+         UIViewAnimationOptionBeginFromCurrentState |
+         UIViewAnimationOptionAllowUserInteraction
+                     animations:^{
+
+        self.cowbellLabel.alpha = 1.0;
+
+    }
+                     completion:^(BOOL finished) {
+
+        self.cowbellLabel.hidden = NO;
+        self.cowbellLabel.alpha = 1.0;
+    }];
 }
+
 
 %end
+
 
 #pragma clang diagnostic pop
