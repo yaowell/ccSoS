@@ -62,40 +62,22 @@ static char kIsLowPowerKey;
         self.backgroundColor = [UIColor clearColor];
         self.opaque = NO;
 
-
-        /*
-         * 初始状态
-         */
         self.capturedLevel = 1.0f;
         self.capturedPercent = 100;
         self.hasCapturedBattery = NO;
 
-
-        /*
-         * 当前低电量模式状态
-         */
         self.currentLowPowerState =
             [NSProcessInfo processInfo].isLowPowerModeEnabled;
 
 
-        /*
-         * 电池填充
-         */
         _fillView = [[UIView alloc] init];
-
         _fillView.clipsToBounds = YES;
-
         [self addSubview:_fillView];
 
 
-        /*
-         * 百分比文字
-         */
         _percentLabel = [[UILabel alloc] init];
-
         _percentLabel.textAlignment =
             NSTextAlignmentCenter;
-
         [self addSubview:_percentLabel];
 
 
@@ -109,12 +91,9 @@ static char kIsLowPowerKey;
 
 
         /*
-         * 低电量模式变化。
+         * 只监听低电量模式。
          *
-         * 这个必须保留。
-         *
-         * 点击低电量模块以后，
-         * 黄色/白色仍然立即变化。
+         * 用于点击低电量模块后立即改变颜色。
          */
         [[NSNotificationCenter defaultCenter]
             addObserver:self
@@ -124,7 +103,7 @@ static char kIsLowPowerKey;
 
 
         /*
-         * Control Center 即将打开
+         * Control Center 打开
          */
         [[NSNotificationCenter defaultCenter]
             addObserver:self
@@ -134,7 +113,7 @@ static char kIsLowPowerKey;
 
 
         /*
-         * Control Center 已经关闭
+         * Control Center 关闭
          */
         [[NSNotificationCenter defaultCenter]
             addObserver:self
@@ -156,16 +135,12 @@ static char kIsLowPowerKey;
 
 /*
  * ============================================================
- * 捕捉一次电量
+ * 捕捉当前电量
  * ============================================================
  */
 
 - (void)captureBatteryDataIfNeeded {
 
-    /*
-     * 已经捕捉过：
-     * 不再读取。
-     */
     if (self.hasCapturedBattery) {
         return;
     }
@@ -186,10 +161,6 @@ static char kIsLowPowerKey;
         device.batteryLevel;
 
 
-    /*
-     * 如果系统暂时返回无效值，
-     * 保持原来的处理方式。
-     */
     if (level < 0.0f) {
 
         level = 1.0f;
@@ -212,6 +183,11 @@ static char kIsLowPowerKey;
 /*
  * ============================================================
  * Control Center 打开
+ *
+ * 关键：
+ * 这里不只是清缓存。
+ *
+ * 而是立即重新读取一次。
  * ============================================================
  */
 
@@ -219,10 +195,32 @@ static char kIsLowPowerKey;
 
     /*
      * 新的一次 Control Center。
-     *
-     * 允许重新捕捉一次电量。
      */
     self.hasCapturedBattery = NO;
+
+
+    /*
+     * 立即捕捉。
+     *
+     * 不 dispatch_async。
+     * 不等待点击。
+     * 不等待下一次 layout。
+     */
+    [self captureBatteryDataIfNeeded];
+
+
+    /*
+     * 同步当前低电量状态。
+     */
+    self.currentLowPowerState =
+        [NSProcessInfo processInfo].isLowPowerModeEnabled;
+
+
+    /*
+     * 立即要求显示新数据。
+     */
+    [self setNeedsLayout];
+    [self setNeedsDisplay];
 }
 
 
@@ -235,11 +233,9 @@ static char kIsLowPowerKey;
 - (void)controlCenterDidDismiss:(NSNotification *)notification {
 
     /*
-     * 本次 Control Center 结束。
+     * 关闭以后只清缓存。
      *
-     * 清除缓存。
-     *
-     * 不在这里读取电量。
+     * 不读取电量。
      */
     self.hasCapturedBattery = NO;
 }
@@ -248,16 +244,16 @@ static char kIsLowPowerKey;
 /*
  * ============================================================
  * 低电量模式变化
+ *
+ * 非常重要：
+ *
+ * 这里绝对不碰 capturedLevel。
+ * 所以点击低电量不会刷新电量。
  * ============================================================
  */
 
 - (void)lowPowerModeDidChange:(NSNotification *)notification {
 
-    /*
-     * 只更新低电量状态。
-     *
-     * 不重新读取 batteryLevel。
-     */
     self.currentLowPowerState =
         [NSProcessInfo processInfo].isLowPowerModeEnabled;
 
@@ -265,7 +261,6 @@ static char kIsLowPowerKey;
     dispatch_async(dispatch_get_main_queue(), ^{
 
         [self setNeedsLayout];
-
         [self setNeedsDisplay];
 
     });
@@ -286,24 +281,18 @@ static char kIsLowPowerKey;
     if (self.window) {
 
         /*
-         * 如果这是第一次出现，
-         * 捕捉一次当前电量。
+         * 第一次进入 Window 时捕捉。
          */
         [self captureBatteryDataIfNeeded];
 
 
-        /*
-         * 同步当前低电量状态。
-         */
         self.currentLowPowerState =
             [NSProcessInfo processInfo].isLowPowerModeEnabled;
 
     } else {
 
         /*
-         * 真正离开 Window。
-         *
-         * 清除本次缓存。
+         * 离开 Window 时清除。
          */
         self.hasCapturedBattery = NO;
     }
@@ -320,35 +309,18 @@ static char kIsLowPowerKey;
                          iconScale:(CGFloat *)outScale
                           iconRect:(CGRect *)outIconRect {
 
-    CGFloat w =
-        bounds.size.width;
+    CGFloat w = bounds.size.width;
+    CGFloat h = bounds.size.height;
 
-    CGFloat h =
-        bounds.size.height;
+    CGFloat scaleH = h / 72.0f;
+    CGFloat scaleW = w / 64.0f;
 
+    CGFloat scale = MIN(scaleH, scaleW);
 
-    CGFloat scaleH =
-        h / 72.0f;
+    CGFloat totalW = 32.0f * scale;
+    CGFloat iconH = 14.0f * scale;
 
-    CGFloat scaleW =
-        w / 64.0f;
-
-
-    CGFloat scale =
-        MIN(scaleH, scaleW);
-
-
-    CGFloat totalW =
-        32.0f * scale;
-
-
-    CGFloat iconH =
-        14.0f * scale;
-
-
-    CGFloat iconX =
-        (w - totalW) / 2.0f;
-
+    CGFloat iconX = (w - totalW) / 2.0f;
 
     CGFloat iconY =
         (h - iconH) / 2.0f
@@ -356,9 +328,7 @@ static char kIsLowPowerKey;
 
 
     if (outScale) {
-
-        *outScale =
-            scale;
+        *outScale = scale;
     }
 
 
@@ -394,19 +364,17 @@ static char kIsLowPowerKey;
 
 
     if (w <= 0 || h <= 0) {
-
         return;
     }
 
 
     /*
-     * 只有没有缓存时才读取电量。
+     * 保险机制：
      *
-     * 因此：
+     * 如果没有缓存才读取。
      *
-     * layout 多次
-     * ↓
-     * 不会重复读取电量
+     * 正常情况下这里不会再次读取，
+     * 因为 Control Center 打开时已经捕捉过。
      */
     [self captureBatteryDataIfNeeded];
 
@@ -423,18 +391,12 @@ static char kIsLowPowerKey;
         self.currentLowPowerState;
 
 
-    /*
-     * 百分比
-     */
     self.percentLabel.text =
         [NSString stringWithFormat:
             @"%d%%",
             currentPercent];
 
 
-    /*
-     * 颜色
-     */
     UIColor *themeColor =
         isLowPower
         ?
@@ -458,13 +420,8 @@ static char kIsLowPowerKey;
         themeColor;
 
 
-    /*
-     * Geometry
-     */
     CGFloat iconScale = 0;
-
-    CGRect iconRect =
-        CGRectZero;
+    CGRect iconRect = CGRectZero;
 
 
     [self calculateGeometryWithBounds:self.bounds
@@ -491,9 +448,7 @@ static char kIsLowPowerKey;
 
 
     if (currentFillW < minFillW) {
-
-        currentFillW =
-            minFillW;
+        currentFillW = minFillW;
     }
 
 
@@ -511,9 +466,6 @@ static char kIsLowPowerKey;
         2.0f * iconScale;
 
 
-    /*
-     * 百分比字体
-     */
     self.percentLabel.font =
         [UIFont systemFontOfSize:
             9.3f * iconScale
@@ -551,15 +503,12 @@ static char kIsLowPowerKey;
 
 
     if (w <= 0 || h <= 0) {
-
         return;
     }
 
 
     CGFloat iconScale = 0;
-
-    CGRect iconRect =
-        CGRectZero;
+    CGRect iconRect = CGRectZero;
 
 
     [self calculateGeometryWithBounds:self.bounds
@@ -592,9 +541,6 @@ static char kIsLowPowerKey;
         4.2f * iconScale;
 
 
-    /*
-     * 电池主体
-     */
     UIBezierPath *bodyPath =
         [UIBezierPath
             bezierPathWithRoundedRect:
@@ -612,13 +558,9 @@ static char kIsLowPowerKey;
 
 
     [strokeColor setStroke];
-
     [bodyPath stroke];
 
 
-    /*
-     * 电池正极
-     */
     CGFloat capW =
         1.8f * iconScale;
 
@@ -663,7 +605,6 @@ static char kIsLowPowerKey;
 
 
     [strokeColor setFill];
-
     [capPath fill];
 }
 
@@ -690,10 +631,6 @@ static char kIsLowPowerKey;
         );
 
 
-    /*
-     * 第一次遇到这个 View：
-     * 判断是不是低电量模块。
-     */
     if (!isLowPowerTarget) {
 
         NSString *pkgName =
@@ -711,10 +648,6 @@ static char kIsLowPowerKey;
             [pkgName containsString:@"Battery"];
 
 
-        /*
-         * 如果 packageName 没有识别出来，
-         * 再沿 responder 链寻找 LowPower。
-         */
         if (!matched) {
 
             for (UIResponder *r = self;
@@ -736,7 +669,6 @@ static char kIsLowPowerKey;
                 if ([cls containsString:@"LowPower"]) {
 
                     matched = YES;
-
                     break;
                 }
             }
@@ -756,19 +688,11 @@ static char kIsLowPowerKey;
     }
 
 
-    /*
-     * 不是低电量模块：
-     * 完全不处理。
-     */
     if (!isLowPowerTarget.boolValue) {
-
         return;
     }
 
 
-    /*
-     * 隐藏系统原来的内容。
-     */
     for (UIView *subview in self.subviews) {
 
         if (subview.tag != 9999) {
@@ -782,16 +706,10 @@ static char kIsLowPowerKey;
         [UIColor clearColor];
 
 
-    /*
-     * 找我们的电池 View。
-     */
     CBCustomBatteryView *batteryView =
         [self viewWithTag:9999];
 
 
-    /*
-     * 第一次创建。
-     */
     if (!batteryView) {
 
         batteryView =
@@ -799,21 +717,13 @@ static char kIsLowPowerKey;
                 initWithFrame:self.bounds];
 
 
-        batteryView.tag =
-            9999;
+        batteryView.tag = 9999;
 
 
         [self addSubview:batteryView];
     }
 
 
-    /*
-     * 每次布局只更新尺寸。
-     *
-     * 不会因此重新读取电量，
-     * 因为 CBCustomBatteryView
-     * 内部有 hasCapturedBattery。
-     */
     batteryView.frame =
         self.bounds;
 
@@ -839,48 +749,56 @@ static char kIsLowPowerKey;
 
 
 /*
- * Control Center 打开
+ * ============================================================
+ * 打开 Control Center
+ * ============================================================
  */
 
 - (void)presentAnimated:(BOOL)animated {
 
     /*
-     * 通知电池 View：
+     * 先执行系统原本的 present。
+     */
+    %orig(animated);
+
+
+    /*
+     * 然后告诉我们的电池 View：
      *
-     * 这是新的一次 Control Center。
+     * 新的一次 Control Center。
      *
-     * 下一次 layout 时重新捕捉电量。
+     * 立即重新捕捉电量。
      */
     [[NSNotificationCenter defaultCenter]
         postNotificationName:
             @"CBCustomBatteryControlCenterWillPresent"
                       object:nil];
-
-
-    %orig(animated);
 }
 
 
 /*
- * Control Center 关闭
+ * ============================================================
+ * 关闭 Control Center
+ * ============================================================
  */
 
 - (void)dismissAnimated:(BOOL)animated {
 
     /*
-     * 通知电池 View：
+     * 先让系统正常关闭。
+     */
+    %orig(animated);
+
+
+    /*
+     * 然后清除本次缓存。
      *
-     * 本次 Control Center 结束。
-     *
-     * 清除缓存，但不读取电量。
+     * 不读取电量。
      */
     [[NSNotificationCenter defaultCenter]
         postNotificationName:
             @"CBCustomBatteryControlCenterDidDismiss"
                       object:nil];
-
-
-    %orig(animated);
 }
 
 %end
