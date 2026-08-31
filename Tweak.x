@@ -13,15 +13,13 @@ extern NSString* const kCAFilterDestOut;
 @interface CCUIContentModuleContainerViewController : UIViewController
 @property (nonatomic, readonly, copy) NSString *moduleIdentifier;
 @property (nonatomic, retain) UILabel *cowbellLabel;
-@property (nonatomic, retain) NSLayoutConstraint *topConstraint; // 声明顶部约束引用
-@property (nonatomic, readonly, assign, getter=isExpanded) BOOL expanded;
 - (UIView *)contentView;
 - (void)updateCowbellState;
 @end
 
 %hook CCUIContentModuleContainerViewController
+
 %property (nonatomic, retain) UILabel *cowbellLabel;
-%property (nonatomic, retain) NSLayoutConstraint *topConstraint;
 
 %new
 - (void)updateCowbellState {
@@ -38,11 +36,14 @@ extern NSString* const kCAFilterDestOut;
     float level = [[UIDevice currentDevice] batteryLevel];
     float safeLevel = (level < 0) ? 1.0 : level;
     int battery = (int)round(safeLevel * 100);
+
     self.cowbellLabel.text = [NSString stringWithFormat:@"%i%%", battery];
 
-    // 2. 状态变色（防止纯镂空在特定背景下识别度低）
+    // 2. 状态变色
     BOOL isLPMOn = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
-    self.cowbellLabel.textColor = isLPMOn ? [UIColor blackColor] : [UIColor whiteColor];
+
+    self.cowbellLabel.textColor =
+        isLPMOn ? [UIColor blackColor] : [UIColor whiteColor];
 }
 
 - (void)viewDidLoad {
@@ -56,62 +57,108 @@ extern NSString* const kCAFilterDestOut;
 - (void)viewDidLayoutSubviews {
     %orig;
 
-    if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
-        UIView *targetContainer = [self respondsToSelector:@selector(contentView)] ? [self contentView] : self.view;
-
-        if (!self.cowbellLabel && targetContainer) {
-            UILabel *label = [[UILabel alloc] init];
-            label.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
-            label.textAlignment = NSTextAlignmentCenter;
-            label.userInteractionEnabled = NO;
-
-            label.backgroundColor = [UIColor clearColor];
-            label.textColor = [UIColor whiteColor];
-
-            // 保持 Cowbell 灵魂镂空
-            CAFilter *filter = [CAFilter filterWithType:kCAFilterDestOut];
-            label.layer.filters = @[filter];
-
-            // 开启 AutoLayout
-            label.translatesAutoresizingMaskIntoConstraints = NO;
-            [targetContainer addSubview:label];
-            self.cowbellLabel = label;
-
-            // 改为锚定 topAnchor，保证跟手且不会跑偏到底部
-            // 默认一级卡片：距离顶部 40pt（正好在小电池下半部分）
-            NSLayoutConstraint *centerX = [label.centerXAnchor constraintEqualToAnchor:targetContainer.centerXAnchor];
-            NSLayoutConstraint *top = [label.topAnchor constraintEqualToAnchor:targetContainer.topAnchor constant:40.0];
-
-            self.topConstraint = top;
-            [NSLayoutConstraint activateConstraints:@[centerX, top]];
-        }
-
-        // 根据展开状态更新 topAnchor 的偏移量
-        BOOL isExpandedState = NO;
-        if ([self respondsToSelector:@selector(isExpanded)]) {
-            isExpandedState = self.expanded;
-        }
-
-        // 一级状态为 40.0，二级展开状态为 68.0（大电池下方）
-        CGFloat targetConstant = isExpandedState ? 68.0 : 40.0;
-        if (self.topConstraint && self.topConstraint.constant != targetConstant) {
-            self.topConstraint.constant = targetConstant;
-        }
-
-        [self updateCowbellState];
+    if (![self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
+        return;
     }
+
+    UIView *targetContainer =
+        [self respondsToSelector:@selector(contentView)]
+        ? [self contentView]
+        : self.view;
+
+    if (!targetContainer) return;
+
+    if (!self.cowbellLabel) {
+
+        UILabel *label = [[UILabel alloc] init];
+
+        label.font =
+            [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
+
+        label.textAlignment = NSTextAlignmentCenter;
+        label.userInteractionEnabled = NO;
+
+        label.backgroundColor = [UIColor clearColor];
+        label.textColor = [UIColor whiteColor];
+
+        // 保持 Cowbell 灵魂镂空
+        CAFilter *filter =
+            [CAFilter filterWithType:kCAFilterDestOut];
+
+        label.layer.filters = @[filter];
+
+        // AutoLayout
+        label.translatesAutoresizingMaskIntoConstraints = NO;
+
+        [targetContainer addSubview:label];
+
+        self.cowbellLabel = label;
+
+        /*
+         ============================================================
+         Cowbell 百分比位置
+         ============================================================
+
+         原来：
+             bottomAnchor -> 整个 contentView 底部
+
+         这样二级菜单展开以后，百分比会跑到整个大卡片的
+         最下面。
+
+         现在：
+             centerX -> contentView 中心
+             top     -> contentView 的垂直中心 + 8pt
+
+         效果：
+             ┌─────────────┐
+             │             │
+             │   🔋        │
+             │   82%       │
+             │             │
+             └─────────────┘
+
+         不再锁死整个卡片的底部。
+         ============================================================
+         */
+
+        [NSLayoutConstraint activateConstraints:@[
+            [label.centerXAnchor
+                constraintEqualToAnchor:targetContainer.centerXAnchor],
+
+            [label.topAnchor
+                constraintEqualToAnchor:targetContainer.centerYAnchor
+                constant:8.0]
+        ]];
+    }
+
+    [self updateCowbellState];
 }
 
 - (void)viewDidAppear:(BOOL)animated {
     %orig(animated);
 
     if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
-        NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
-        [nc removeObserver:self name:NSProcessInfoPowerStateDidChangeNotification object:nil];
-        [nc removeObserver:self name:UIDeviceBatteryLevelDidChangeNotification object:nil];
 
-        [nc addObserver:self selector:@selector(updateCowbellState) name:NSProcessInfoPowerStateDidChangeNotification object:nil];
-        [nc addObserver:self selector:@selector(updateCowbellState) name:UIDeviceBatteryLevelDidChangeNotification object:nil];
+        NSNotificationCenter *nc =
+            [NSNotificationCenter defaultCenter];
+
+        [nc removeObserver:self
+                      name:NSProcessInfoPowerStateDidChangeNotification
+                    object:nil];
+
+        [nc removeObserver:self
+                      name:UIDeviceBatteryLevelDidChangeNotification
+                    object:nil];
+
+        [nc addObserver:self
+               selector:@selector(updateCowbellState)
+                   name:NSProcessInfoPowerStateDidChangeNotification
+                 object:nil];
+
+        [nc addObserver:self
+               selector:@selector(updateCowbellState)
+                   name:UIDeviceBatteryLevelDidChangeNotification
+                 object:nil];
 
         [self updateCowbellState];
     }
@@ -121,24 +168,30 @@ extern NSString* const kCAFilterDestOut;
     %orig(animated);
 
     if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
-        NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
-        [nc removeObserver:self name:NSProcessInfoPowerStateDidChangeNotification object:nil];
-        [nc removeObserver:self name:UIDeviceBatteryLevelDidChangeNotification object:nil];
+
+        NSNotificationCenter *nc =
+            [NSNotificationCenter defaultCenter];
+
+        [nc removeObserver:self
+                      name:NSProcessInfoPowerStateDidChangeNotification
+                    object:nil];
+
+        [nc removeObserver:self
+                      name:UIDeviceBatteryLevelDidChangeNotification
+                    object:nil];
     }
 }
 
-// 展开/收起转场时，跟随系统的 CoreAnimation 视图拉伸同步更新约束
+// 展开大卡片时淡出隐藏，切回时淡入
 - (void)willTransitionToExpandedContentMode:(BOOL)expanded {
     %orig(expanded);
 
     if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
-        if (!self.cowbellLabel || !self.topConstraint) return;
 
-        // 展开设置为 68.0，收起恢复 40.0
-        self.topConstraint.constant = expanded ? 68.0 : 40.0;
+        if (!self.cowbellLabel) return;
 
-        [UIView animateWithDuration:0.3 animations:^{
-            [self.view layoutIfNeeded];
+        [UIView animateWithDuration:0.25 animations:^{
+            self.cowbellLabel.alpha = expanded ? 0.0 : 1.0;
         }];
     }
 }
