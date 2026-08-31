@@ -24,7 +24,6 @@ extern NSString* const kCAFilterDestOut;
 
 %new
 - (void)updateCowbellState {
-    // 强制切回主线程执行，防止非主线程更新 UI 导致安全模式崩溃
     if (![NSThread isMainThread]) {
         dispatch_async(dispatch_get_main_queue(), ^{
             [self updateCowbellState];
@@ -34,17 +33,16 @@ extern NSString* const kCAFilterDestOut;
 
     if (!self.cowbellLabel) return;
 
-    // 1. 安全获取展开状态（防止方法不存在导致的崩溃）
+    // 1. 安全检查展开状态，展开时不计算也不显示
     BOOL expanded = NO;
     if ([self respondsToSelector:@selector(isExpanded)]) {
         expanded = self.isExpanded;
     }
 
     if (expanded) {
-        self.cowbellLabel.hidden = YES;
+        self.cowbellLabel.alpha = 0.0;
         return;
     }
-    self.cowbellLabel.hidden = NO;
 
     // 2. 读取电量
     float level = [[UIDevice currentDevice] batteryLevel];
@@ -55,7 +53,7 @@ extern NSString* const kCAFilterDestOut;
     [self.cowbellLabel sizeToFit];
     [self.view bringSubviewToFront:self.cowbellLabel];
 
-    // 3. 禁用隐式动画，防止切回一级菜单时文字飞跃
+    // 3. 禁用隐式动画，保证布局一步到位
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
 
@@ -71,7 +69,7 @@ extern NSString* const kCAFilterDestOut;
         labelH
     );
 
-    // 4. 读取系统低电量状态，同步更新滤镜
+    // 4. 读取系统低电量状态，更新 GPU 混合滤镜
     BOOL isLPMOn = [[NSProcessInfo processInfo] isLowPowerModeEnabled];
     if (isLPMOn) {
         self.cowbellLabel.layer.compositingFilter = kCAFilterDestOut;
@@ -80,6 +78,9 @@ extern NSString* const kCAFilterDestOut;
     }
 
     [CATransaction commit];
+
+    // 恢复可见度
+    self.cowbellLabel.alpha = 1.0;
 }
 
 - (void)viewDidLoad {
@@ -110,7 +111,6 @@ extern NSString* const kCAFilterDestOut;
         [nc removeObserver:self name:NSProcessInfoPowerStateDidChangeNotification object:nil];
         [nc removeObserver:self name:UIDeviceBatteryLevelDidChangeNotification object:nil];
 
-        // 仅在控制中心展示时绑定系统低电量切换与电量变化通知
         [nc addObserver:self selector:@selector(updateCowbellState) name:NSProcessInfoPowerStateDidChangeNotification object:nil];
         [nc addObserver:self selector:@selector(updateCowbellState) name:UIDeviceBatteryLevelDidChangeNotification object:nil];
 
@@ -122,7 +122,6 @@ extern NSString* const kCAFilterDestOut;
     %orig(animated);
 
     if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
-        // 控制中心收起立刻移除监听，不占用后台任何资源与电量
         NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
         [nc removeObserver:self name:NSProcessInfoPowerStateDidChangeNotification object:nil];
         [nc removeObserver:self name:UIDeviceBatteryLevelDidChangeNotification object:nil];
@@ -137,13 +136,26 @@ extern NSString* const kCAFilterDestOut;
     }
 }
 
-// 响应二级菜单展开与收起
+// 核心优化：利用动画协调器（TransitionCoordinator）让文字随系统手势/动画无缝渐变恢复
 - (void)willTransitionToExpandedContentMode:(BOOL)expanded {
     %orig(expanded);
 
     if ([self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
-        if (self.cowbellLabel) {
-            self.cowbellLabel.hidden = expanded;
+        if (!self.cowbellLabel) return;
+
+        id<UIViewControllerTransitionCoordinator> coordinator = self.transitionCoordinator;
+        if (coordinator) {
+            [coordinator animateAlongsideTransition:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+                // 动画执行中：展开时 alpha 渐变为 0，收起时 alpha 渐变为 1
+                self.cowbellLabel.alpha = expanded ? 0.0 : 1.0;
+            } completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+                // 动画结束完的瞬间，更新状态与精准 Frame
+                if (!expanded) {
+                    [self updateCowbellState];
+                }
+            }];
+        } else {
+            self.cowbellLabel.alpha = expanded ? 0.0 : 1.0;
             if (!expanded) {
                 [self updateCowbellState];
             }
