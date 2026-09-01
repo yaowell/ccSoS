@@ -134,7 +134,7 @@ static char kIsLowPowerKey;
     [self calculateGeometryWithBounds:self.bounds iconScale:&iconScale iconRect:&iconRect];
 
     CGFloat bodyW = iconRect.size.width - (3.3f * iconScale);
-    CGFloat padding = 2.2f * iconScale;
+    CGFloat padding = 2.1f * iconScale;
 
     CGFloat currentFillW = (bodyW - padding * 2.0f) * level;
     CGFloat minFillW = 2.0f * iconScale;
