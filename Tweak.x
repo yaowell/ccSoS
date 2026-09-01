@@ -1,5 +1,8 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
+@interface CALayer (Private)
+@property (nonatomic, assign) BOOL allowsGroupBlending;
+@property (nonatomic, assign) BOOL allowsGroupOpacity;
 #import <objc/runtime.h>
 
 #pragma clang diagnostic push
