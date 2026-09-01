@@ -5,19 +5,9 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
-extern NSString *const kCAFilterDestOut;
-
-@interface CALayer (Private)
-@property (nonatomic, assign) BOOL allowsGroupBlending;
-@property (nonatomic, assign) BOOL allowsGroupOpacity;
-@end
-
-@interface CAFilter : NSObject
-+ (instancetype)filterWithType:(NSString *)type;
-@end
-
 @interface CCUICAPackageView : UIView
 @property (nonatomic, copy) NSString *packageName;
+@property (nonatomic, copy) NSString *state;
 @end
 
 static char kCowbellPercentLabelKey;
@@ -59,29 +49,41 @@ static BOOL CowbellIsLowPowerPackage(CCUICAPackageView *view) {
     return matched;
 }
 
-// 刷新电量数值（仅负责数字，不改变颜色）
+// 读取当前系统电量并更新显示文本
 static void CowbellUpdatePercent(CCUICAPackageView *view) {
     if (!view) return;
     UILabel *label = CowbellGetLabel(view);
     if (!label || !label.window) return;
 
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (!label.window) return;
+    if (!UIDevice.currentDevice.isBatteryMonitoringEnabled) {
+        UIDevice.currentDevice.batteryMonitoringEnabled = YES;
+    }
 
-        if (!UIDevice.currentDevice.isBatteryMonitoringEnabled) {
-            UIDevice.currentDevice.batteryMonitoringEnabled = YES;
-        }
+    float level = UIDevice.currentDevice.batteryLevel;
+    if (level < 0) level = 1.0f;
+    int percent = (int)round(level * 100.0f);
 
-        float level = UIDevice.currentDevice.batteryLevel;
-        if (level < 0) level = 1.0f;
-        int percent = (int)round(level * 100.0f);
-
-        label.text = [NSString stringWithFormat:@"%d%%", percent];
-        [label setNeedsLayout];
-    });
+    label.text = [NSString stringWithFormat:@"%d%%", percent];
+    [label setNeedsLayout];
 }
 
-// 创建并初始化 Label，滤镜永久生效
+// 判断当前 packageState 是否为激活/开启状态
+static BOOL CowbellIsStateActive(NSString *state) {
+    if (!state) return NO;
+    NSString *s = [state lowercaseString];
+    return [s containsString:@"on"] || [s containsString:@"selected"] || [s containsString:@"active"] || [s containsString:@"yellow"];
+}
+
+// 根据 state 刷新文字颜色
+static void CowbellUpdateColorForState(CCUICAPackageView *view, NSString *state) {
+    UILabel *label = CowbellGetLabel(view);
+    if (!label) return;
+
+    BOOL isActive = CowbellIsStateActive(state);
+    label.textColor = isActive ? [UIColor blackColor] : [UIColor whiteColor];
+}
+
+// 创建并初始化 Label（不含 Notification 监听）
 static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
     UILabel *label = CowbellGetLabel(view);
     if (label) return label;
@@ -90,43 +92,41 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
     label.textAlignment = NSTextAlignmentCenter;
     label.userInteractionEnabled = NO;
     label.backgroundColor = [UIColor clearColor];
-    
-    // 固定的白色基础色，配合 DestOut 混合模式
     label.textColor = [UIColor whiteColor];
     label.font = [UIFont systemFontOfSize:9.5 weight:UIFontWeightRegular];
-
-    // 允许图层组混合与不透明度控制
-    label.layer.allowsGroupBlending = YES;
-    label.layer.allowsGroupOpacity = YES;
-
-    // 永久挂载 DestOut 镂空滤镜
-    CAFilter *filter = [CAFilter filterWithType:kCAFilterDestOut];
-    label.layer.filters = @[filter];
     label.tag = 9998;
 
     [view addSubview:label];
 
     objc_setAssociatedObject(view, &kCowbellPercentLabelKey, label, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
-    // 保留电量变化的广播监听
-    NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
-    [nc addObserverForName:UIDeviceBatteryLevelDidChangeNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
-        CowbellUpdatePercent(view);
-    }];
-
     return label;
 }
 
 %hook CCUICAPackageView
 
+// 1. Hook 系统的 setState: 方法，点击图标时切换状态会触发
+- (void)setState:(NSString *)state {
+    %orig(state);
+
+    if (CowbellIsLowPowerPackage(self)) {
+        CowbellUpdateColorForState(self, state);
+    }
+}
+
+// 2. Hook setState:animated: 防备部分切换带动画调用的情况
+- (void)setState:(NSString *)state animated:(BOOL)animated {
+    %orig(state, animated);
+
+    if (CowbellIsLowPowerPackage(self)) {
+        CowbellUpdateColorForState(self, state);
+    }
+}
+
 - (void)layoutSubviews {
     %orig;
 
     if (!CowbellIsLowPowerPackage(self)) return;
-
-    if (!UIDevice.currentDevice.isBatteryMonitoringEnabled) {
-        UIDevice.currentDevice.batteryMonitoringEnabled = YES;
-    }
 
     UILabel *label = CowbellCreateLabel(self);
     if (!label) return;
@@ -142,8 +142,12 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
     label.frame = CGRectMake(0, y, width, 11.0f);
     label.font = [UIFont systemFontOfSize:9.5 weight:UIFontWeightRegular];
 
-    // 确保文字位于图标背景图层的上方
     [self bringSubviewToFront:label];
+
+    // 绘制布局时同步一次当前状态颜色与电量
+    if ([self respondsToSelector:@selector(state)]) {
+        CowbellUpdateColorForState(self, self.state);
+    }
     CowbellUpdatePercent(self);
 }
 
@@ -153,14 +157,15 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
     if (!CowbellIsLowPowerPackage(self)) return;
 
     if (self.window) {
-        if (!UIDevice.currentDevice.isBatteryMonitoringEnabled) {
-            UIDevice.currentDevice.batteryMonitoringEnabled = YES;
-        }
-
         UILabel *label = CowbellGetLabel(self);
         if (label) {
             label.hidden = NO;
             label.alpha = 1.0f;
+            
+            // 下拉控制中心进入屏幕时，只在此时更新一次颜色和电量
+            if ([self respondsToSelector:@selector(state)]) {
+                CowbellUpdateColorForState(self, self.state);
+            }
             CowbellUpdatePercent(self);
         }
     }
