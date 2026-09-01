@@ -15,7 +15,7 @@ static char kCowbellIsLowPowerKey;
 
 static CGFloat const COWBELL_PERCENT_Y_OFFSET = 12.0;
 
-// 极其高效的 IOKit 电量获取（兼顾 iOS 15-18 所有 SDK 编译环境，无后台轮询）
+// 高效 IOKit 电量获取
 static int CowbellGetRealBatteryPercent(void) {
 #ifndef kIOMainPortDefault
     #define kIOMainPortDefault kIOMasterPortDefault
@@ -50,7 +50,7 @@ static UILabel *CowbellGetLabel(CCUICAPackageView *view) {
     return objc_getAssociatedObject(view, &kCowbellPercentLabelKey);
 }
 
-// 快速判定与缓存机制（非目标 View 瞬间拦截）
+// 识别低电量图标并强行缓存
 static BOOL CowbellIsLowPowerPackage(CCUICAPackageView *view) {
     NSNumber *cached = objc_getAssociatedObject(view, &kCowbellIsLowPowerKey);
     if (cached) return cached.boolValue;
@@ -71,12 +71,11 @@ static BOOL CowbellIsLowPowerPackage(CCUICAPackageView *view) {
         }
     }
 
-    // 无论是或否都强行缓存，保证非低电量图标下次在 1 毫秒内退出
     objc_setAssociatedObject(view, &kCowbellIsLowPowerKey, @(matched), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     return matched;
 }
 
-// 刷新百分比与颜色（纯 CPU 计算，零 dispatch 排队）
+// 刷新电量数值与颜色
 static void CowbellUpdatePercent(CCUICAPackageView *view) {
     if (!view) return;
     UILabel *label = CowbellGetLabel(view);
@@ -105,7 +104,7 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
 
     objc_setAssociatedObject(view, &kCowbellPercentLabelKey, label, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
-    // 系统广播注册
+    // 广播监听保留
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     [nc addObserverForName:UIDeviceBatteryLevelDidChangeNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
         CowbellUpdatePercent(view);
@@ -122,7 +121,6 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
 - (void)layoutSubviews {
     %orig;
 
-    // 非低电量图标在第 1 行代码直接退出，极低消耗
     if (!CowbellIsLowPowerPackage(self)) return;
 
     UILabel *label = CowbellCreateLabel(self);
@@ -138,6 +136,7 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
     label.frame = CGRectMake(0, y, width, 11.0f);
     [self bringSubviewToFront:label];
     
+    // 关键：下拉控制中心触发 layoutSubviews 时强制刷新电量与颜色
     CowbellUpdatePercent(self);
 }
 
