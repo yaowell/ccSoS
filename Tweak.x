@@ -15,8 +15,12 @@ static char kCowbellIsLowPowerKey;
 
 static CGFloat const COWBELL_PERCENT_Y_OFFSET = 12.0;
 
-// 极其高效的 IOKit 电量获取（不开启系统电池监控机制）
+// 极其高效的 IOKit 电量获取（兼顾 iOS 15-18 所有 SDK 编译环境，无后台轮询）
 static int CowbellGetRealBatteryPercent(void) {
+#ifndef kIOMainPortDefault
+    #define kIOMainPortDefault kIOMasterPortDefault
+#endif
+
     mach_port_t mainPort = kIOMainPortDefault;
     io_service_t service = IOServiceGetMatchingService(mainPort, IOServiceMatching("AppleSmartBattery"));
     if (!service) return 0;
@@ -67,7 +71,7 @@ static BOOL CowbellIsLowPowerPackage(CCUICAPackageView *view) {
         }
     }
 
-    // 无论 YES 还是 NO 都强行缓存，保证非低电量图标下次 1 毫秒内退出
+    // 无论是或否都强行缓存，保证非低电量图标下次在 1 毫秒内退出
     objc_setAssociatedObject(view, &kCowbellIsLowPowerKey, @(matched), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     return matched;
 }
@@ -118,7 +122,7 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
 - (void)layoutSubviews {
     %orig;
 
-    // 非低电量图标第 1 行直接退出，极低消耗
+    // 非低电量图标在第 1 行代码直接退出，极低消耗
     if (!CowbellIsLowPowerPackage(self)) return;
 
     UILabel *label = CowbellCreateLabel(self);
