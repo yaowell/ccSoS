@@ -524,7 +524,7 @@ static void CowbellFindPackageViews(
 
 
     label.font =
-        [UIFont systemFontOfSize:10.0
+        [UIFont systemFontOfSize:9.3
                           weight:UIFontWeightRegular];
 
 
