@@ -243,7 +243,7 @@ static char kIsLowPowerKey;
         - (3.3f * iconScale);
 
     CGFloat padding =
-        2.5 * iconScale;
+        2.2 * iconScale;
 
     CGFloat currentFillW =
         (bodyW - padding * 2.0f)
