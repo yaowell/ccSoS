@@ -18,11 +18,38 @@ extern NSString *const kCAFilterDestOut;
 static char kCowbellPercentLabelKey;
 static char kCowbellIsLowPowerKey;
 
-// 一级菜单百分比位置偏移（根据你的喜好微调）
 static CGFloat const COWBELL_PERCENT_Y_OFFSET = 12.0;
 
 static UILabel *CowbellGetLabel(CCUICAPackageView *view) {
     return objc_getAssociatedObject(view, &kCowbellPercentLabelKey);
+}
+
+static void CowbellUpdatePercent(CCUICAPackageView *view) {
+    if (!view) return;
+    UILabel *label = CowbellGetLabel(view);
+    if (!label || !label.window) return;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!label.window) return;
+
+        if (!UIDevice.currentDevice.isBatteryMonitoringEnabled) {
+            UIDevice.currentDevice.batteryMonitoringEnabled = YES;
+        }
+
+        float level = UIDevice.currentDevice.batteryLevel;
+        if (level < 0) level = 1.0f;
+        int percent = (int)round(level * 100.0f);
+
+        label.text = [NSString stringWithFormat:@"%d%%", percent];
+
+        BOOL lowPower = [NSProcessInfo processInfo].isLowPowerModeEnabled;
+        label.textColor = lowPower ? [UIColor blackColor] : [UIColor whiteColor];
+
+        CAFilter *filter = [CAFilter filterWithType:kCAFilterDestOut];
+        label.layer.filters = @[filter];
+
+        [label setNeedsLayout];
+    });
 }
 
 static BOOL CowbellIsLowPowerPackage(CCUICAPackageView *view) {
@@ -54,34 +81,6 @@ static BOOL CowbellIsLowPowerPackage(CCUICAPackageView *view) {
     return matched;
 }
 
-static void CowbellUpdatePercent(CCUICAPackageView *view) {
-    if (!view) return;
-    UILabel *label = CowbellGetLabel(view);
-    if (!label || !label.window) return;
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (!label.window) return;
-
-        if (!UIDevice.currentDevice.isBatteryMonitoringEnabled) {
-            UIDevice.currentDevice.batteryMonitoringEnabled = YES;
-        }
-
-        float level = UIDevice.currentDevice.batteryLevel;
-        if (level < 0) level = 1.0f;
-        int percent = (int)round(level * 100.0f);
-
-        label.text = [NSString stringWithFormat:@"%d%%", percent];
-
-        BOOL lowPower = [NSProcessInfo processInfo].isLowPowerModeEnabled;
-        label.textColor = lowPower ? [UIColor blackColor] : [UIColor whiteColor];
-
-        CAFilter *filter = [CAFilter filterWithType:kCAFilterDestOut];
-        label.layer.filters = @[filter];
-
-        [label setNeedsLayout];
-    });
-}
-
 static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
     UILabel *label = CowbellGetLabel(view);
     if (label) return label;
@@ -91,7 +90,7 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
     label.userInteractionEnabled = NO;
     label.backgroundColor = [UIColor clearColor];
     label.textColor = [UIColor whiteColor];
-    label.font = [UIFont systemFontOfSize:10.0 weight:UIFontWeightRegular];
+    label.font = [UIFont systemFontOfSize:9.5 weight:UIFontWeightRegular];
 
     CAFilter *filter = [CAFilter filterWithType:kCAFilterDestOut];
     label.layer.filters = @[filter];
@@ -105,25 +104,11 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
     [nc addObserverForName:UIDeviceBatteryLevelDidChangeNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
         CowbellUpdatePercent(view);
     }];
-    [nc addObserverForName:UIDeviceBatteryStateDidChangeNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
-        CowbellUpdatePercent(view);
-    }];
     [nc addObserverForName:NSProcessInfoPowerStateDidChangeNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
         CowbellUpdatePercent(view);
     }];
 
     return label;
-}
-
-static void CowbellFindPackageViews(UIView *root, NSMutableArray *packageViews) {
-    if (!root) return;
-    Class packageClass = NSClassFromString(@"CCUICAPackageView");
-    if (packageClass && [root isKindOfClass:packageClass]) {
-        [packageViews addObject:root];
-    }
-    for (UIView *subview in root.subviews) {
-        CowbellFindPackageViews(subview, packageViews);
-    }
 }
 
 %hook CCUICAPackageView
@@ -143,16 +128,14 @@ static void CowbellFindPackageViews(UIView *root, NSMutableArray *packageViews) 
     CGFloat width = self.bounds.size.width;
     CGFloat height = self.bounds.size.height;
 
-    // 过滤掉展开后的大卡片容器，只在小图标上挂载
-    if (width <= 0 || height <= 0 || width > 100 || height > 100) {
-        label.hidden = YES;
-        return;
-    }
+    if (width <= 0 || height <= 0) return;
 
     CGFloat centerY = height * 0.5f;
     CGFloat y = centerY + COWBELL_PERCENT_Y_OFFSET;
 
     label.frame = CGRectMake(0, y, width, 11.0f);
+    label.font = [UIFont systemFontOfSize:9.5 weight:UIFontWeightRegular];
+
     [self bringSubviewToFront:label];
     CowbellUpdatePercent(self);
 }
@@ -173,35 +156,6 @@ static void CowbellFindPackageViews(UIView *root, NSMutableArray *packageViews) 
             label.alpha = 1.0f;
             CowbellUpdatePercent(self);
         }
-    }
-}
-
-%end
-
-@interface CCUIContentModuleContainerViewController : UIViewController
-@property (nonatomic, readonly, copy) NSString *moduleIdentifier;
-@end
-
-%hook CCUIContentModuleContainerViewController
-
-// 完美的转场淡入淡出，绝对跟手自然
-- (void)willTransitionToExpandedContentMode:(BOOL)expanded {
-    %orig(expanded);
-
-    if (![self.moduleIdentifier isEqualToString:@"com.apple.control-center.LowPowerModule"]) {
-        return;
-    }
-
-    NSMutableArray *packageViews = [NSMutableArray array];
-    CowbellFindPackageViews(self.view, packageViews);
-
-    for (CCUICAPackageView *packageView in packageViews) {
-        UILabel *label = CowbellGetLabel(packageView);
-        if (!label) continue;
-
-        [UIView animateWithDuration:0.2 animations:^{
-            label.alpha = expanded ? 0.0f : 1.0f;
-        }];
     }
 }
 
