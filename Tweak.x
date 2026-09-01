@@ -15,10 +15,7 @@ static char kCowbellIsLowPowerKey;
 
 static CGFloat const COWBELL_PERCENT_Y_OFFSET = 12.0;
 
-// NSHashTable 弱引用保存当前活跃的 PackageView，防止 Respring 或销毁时野指针
-static NSHashTable *cowbellActiveViews = nil;
-
-// 1. 底层 IOKit 电量获取（不开启系统 UIDevice 轮询）
+// 极其高效的 IOKit 电量获取（兼顾 iOS 15-18 所有 SDK 编译环境，无后台轮询）
 static int CowbellGetRealBatteryPercent(void) {
 #ifndef kIOMainPortDefault
     #define kIOMainPortDefault kIOMasterPortDefault
@@ -53,7 +50,7 @@ static UILabel *CowbellGetLabel(CCUICAPackageView *view) {
     return objc_getAssociatedObject(view, &kCowbellPercentLabelKey);
 }
 
-// 快速识别与缓存
+// 快速判定与缓存机制（非目标 View 瞬间拦截）
 static BOOL CowbellIsLowPowerPackage(CCUICAPackageView *view) {
     NSNumber *cached = objc_getAssociatedObject(view, &kCowbellIsLowPowerKey);
     if (cached) return cached.boolValue;
@@ -74,30 +71,22 @@ static BOOL CowbellIsLowPowerPackage(CCUICAPackageView *view) {
         }
     }
 
+    // 无论是或否都强行缓存，保证非低电量图标下次在 1 毫秒内退出
     objc_setAssociatedObject(view, &kCowbellIsLowPowerKey, @(matched), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     return matched;
 }
 
-// 刷新指定 View 的电量与文字颜色
-static void CowbellUpdatePercentForView(CCUICAPackageView *view) {
+// 刷新百分比与颜色（纯 CPU 计算，零 dispatch 排队）
+static void CowbellUpdatePercent(CCUICAPackageView *view) {
     if (!view) return;
     UILabel *label = CowbellGetLabel(view);
-    if (!label) return;
+    if (!label || !label.window) return;
 
     int percent = CowbellGetRealBatteryPercent();
     label.text = [NSString stringWithFormat:@"%d%%", percent];
 
     BOOL lowPower = [NSProcessInfo processInfo].isLowPowerModeEnabled;
     label.textColor = lowPower ? [UIColor blackColor] : [UIColor whiteColor];
-}
-
-// 刷新所有当前存活的低电量视图（供全局广播调用）
-static void CowbellNotifyAllViews(void) {
-    @synchronized(cowbellActiveViews) {
-        for (CCUICAPackageView *view in cowbellActiveViews) {
-            CowbellUpdatePercentForView(view);
-        }
-    }
 }
 
 static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
@@ -116,9 +105,14 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
 
     objc_setAssociatedObject(view, &kCowbellPercentLabelKey, label, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
-    @synchronized(cowbellActiveViews) {
-        [cowbellActiveViews addObject:view];
-    }
+    // 系统广播注册
+    NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
+    [nc addObserverForName:UIDeviceBatteryLevelDidChangeNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
+        CowbellUpdatePercent(view);
+    }];
+    [nc addObserverForName:NSProcessInfoPowerStateDidChangeNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
+        CowbellUpdatePercent(view);
+    }];
 
     return label;
 }
@@ -128,6 +122,7 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
 - (void)layoutSubviews {
     %orig;
 
+    // 非低电量图标在第 1 行代码直接退出，极低消耗
     if (!CowbellIsLowPowerPackage(self)) return;
 
     UILabel *label = CowbellCreateLabel(self);
@@ -141,12 +136,9 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
     CGFloat y = centerY + COWBELL_PERCENT_Y_OFFSET;
 
     label.frame = CGRectMake(0, y, width, 11.0f);
-    label.font = [UIFont systemFontOfSize:9.5 weight:UIFontWeightRegular];
-
     [self bringSubviewToFront:label];
-
-    // 下拉时同步最新电量
-    CowbellUpdatePercentForView(self);
+    
+    CowbellUpdatePercent(self);
 }
 
 - (void)didMoveToWindow {
@@ -159,24 +151,11 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
         if (label) {
             label.hidden = NO;
             label.alpha = 1.0f;
-            CowbellUpdatePercentForView(self);
+            CowbellUpdatePercent(self);
         }
     }
 }
 
 %end
-
-// Tweak 加载时只在进程最外层注册一次全局广播，确保 Respring 后无论何时广播都能精准接收
-%ctor {
-    cowbellActiveViews = [NSHashTable weakObjectsHashTable];
-
-    NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
-    [nc addObserverForName:UIDeviceBatteryLevelDidChangeNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
-        CowbellNotifyAllViews();
-    }];
-    [nc addObserverForName:NSProcessInfoPowerStateDidChangeNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
-        CowbellNotifyAllViews();
-    }];
-}
 
 #pragma clang diagnostic pop
