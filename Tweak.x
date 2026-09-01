@@ -15,7 +15,10 @@ static char kCowbellIsLowPowerKey;
 
 static CGFloat const COWBELL_PERCENT_Y_OFFSET = 12.0;
 
-// 底层 IOKit 读取电量，不开启系统轮询
+// NSHashTable 弱引用保存当前活跃的 PackageView，防止 Respring 或销毁时野指针
+static NSHashTable *cowbellActiveViews = nil;
+
+// 1. 底层 IOKit 电量获取（不开启系统 UIDevice 轮询）
 static int CowbellGetRealBatteryPercent(void) {
 #ifndef kIOMainPortDefault
     #define kIOMainPortDefault kIOMasterPortDefault
@@ -50,7 +53,7 @@ static UILabel *CowbellGetLabel(CCUICAPackageView *view) {
     return objc_getAssociatedObject(view, &kCowbellPercentLabelKey);
 }
 
-// 精准识别并强行缓存（非低电量图标 1 毫秒弹退）
+// 快速识别与缓存
 static BOOL CowbellIsLowPowerPackage(CCUICAPackageView *view) {
     NSNumber *cached = objc_getAssociatedObject(view, &kCowbellIsLowPowerKey);
     if (cached) return cached.boolValue;
@@ -75,17 +78,26 @@ static BOOL CowbellIsLowPowerPackage(CCUICAPackageView *view) {
     return matched;
 }
 
-// 纯 CPU 同步刷新，无 GCD 异步排队开销
-static void CowbellUpdatePercent(CCUICAPackageView *view) {
+// 刷新指定 View 的电量与文字颜色
+static void CowbellUpdatePercentForView(CCUICAPackageView *view) {
     if (!view) return;
     UILabel *label = CowbellGetLabel(view);
-    if (!label || !label.window) return;
+    if (!label) return;
 
     int percent = CowbellGetRealBatteryPercent();
     label.text = [NSString stringWithFormat:@"%d%%", percent];
 
     BOOL lowPower = [NSProcessInfo processInfo].isLowPowerModeEnabled;
     label.textColor = lowPower ? [UIColor blackColor] : [UIColor whiteColor];
+}
+
+// 刷新所有当前存活的低电量视图（供全局广播调用）
+static void CowbellNotifyAllViews(void) {
+    @synchronized(cowbellActiveViews) {
+        for (CCUICAPackageView *view in cowbellActiveViews) {
+            CowbellUpdatePercentForView(view);
+        }
+    }
 }
 
 static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
@@ -104,14 +116,9 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
 
     objc_setAssociatedObject(view, &kCowbellPercentLabelKey, label, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
-    // 保留 2 个广播监听，确保后台电量变化/模式切换时实时同步
-    NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
-    [nc addObserverForName:UIDeviceBatteryLevelDidChangeNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
-        CowbellUpdatePercent(view);
-    }];
-    [nc addObserverForName:NSProcessInfoPowerStateDidChangeNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
-        CowbellUpdatePercent(view);
-    }];
+    @synchronized(cowbellActiveViews) {
+        [cowbellActiveViews addObject:view];
+    }
 
     return label;
 }
@@ -128,7 +135,6 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
 
     CGFloat width = self.bounds.size.width;
     CGFloat height = self.bounds.size.height;
-
     if (width <= 0 || height <= 0) return;
 
     CGFloat centerY = height * 0.5f;
@@ -139,8 +145,8 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
 
     [self bringSubviewToFront:label];
 
-    // 关键刷新逻辑完全保留：控制中心下拉必刷新最新数值
-    CowbellUpdatePercent(self);
+    // 下拉时同步最新电量
+    CowbellUpdatePercentForView(self);
 }
 
 - (void)didMoveToWindow {
@@ -153,11 +159,24 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
         if (label) {
             label.hidden = NO;
             label.alpha = 1.0f;
-            CowbellUpdatePercent(self);
+            CowbellUpdatePercentForView(self);
         }
     }
 }
 
 %end
+
+// Tweak 加载时只在进程最外层注册一次全局广播，确保 Respring 后无论何时广播都能精准接收
+%ctor {
+    cowbellActiveViews = [NSHashTable weakObjectsHashTable];
+
+    NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
+    [nc addObserverForName:UIDeviceBatteryLevelDidChangeNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
+        CowbellNotifyAllViews();
+    }];
+    [nc addObserverForName:NSProcessInfoPowerStateDidChangeNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
+        CowbellNotifyAllViews();
+    }];
+}
 
 #pragma clang diagnostic pop
