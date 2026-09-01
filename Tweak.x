@@ -1,19 +1,16 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
+static char kIsLowPowerKey;
+
 @interface CCUICAPackageView : UIView
 @property (nonatomic, copy) NSString *packageName;
 @end
-
-static char kIsLowPowerKey;
-
-#pragma mark - CBCustomBatteryView
 
 @interface CBCustomBatteryView : UIView
 
 @property (nonatomic, strong) UIView *fillView;
 @property (nonatomic, strong) UILabel *percentLabel;
-
 @property (nonatomic, assign) int lastPercent;
 @property (nonatomic, assign) BOOL lastLowPowerState;
 
@@ -23,51 +20,29 @@ static char kIsLowPowerKey;
 
 @implementation CBCustomBatteryView
 
-#pragma mark - 初始化
-
 - (instancetype)initWithFrame:(CGRect)frame {
-    self = [super initWithFrame:frame];
-
-    if (self) {
+    if (self = [super initWithFrame:frame]) {
 
         self.userInteractionEnabled = NO;
         self.backgroundColor = [UIColor clearColor];
         self.opaque = NO;
 
-        /*
-         * -1 表示还没有进行过第一次有效记录
-         */
         self.lastPercent = -1;
         self.lastLowPowerState = NO;
 
-        /*
-         * 电池填充部分
-         */
         _fillView = [[UIView alloc] init];
         _fillView.clipsToBounds = YES;
-        _fillView.userInteractionEnabled = NO;
         [self addSubview:_fillView];
 
-        /*
-         * 百分比
-         */
         _percentLabel = [[UILabel alloc] init];
         _percentLabel.textAlignment = NSTextAlignmentCenter;
-        _percentLabel.backgroundColor = [UIColor clearColor];
-        _percentLabel.userInteractionEnabled = NO;
-
         [self addSubview:_percentLabel];
 
-        /*
-         * 开启电池监控
-         */
         [UIDevice currentDevice].batteryMonitoringEnabled = YES;
     }
 
     return self;
 }
-
-#pragma mark - Window 生命周期
 
 - (void)didMoveToWindow {
 
@@ -78,20 +53,16 @@ static char kIsLowPowerKey;
 
     if (self.window) {
 
-        /*
-         * 确保电池监控开启
-         */
         if (![UIDevice currentDevice].isBatteryMonitoringEnabled) {
             [UIDevice currentDevice].batteryMonitoringEnabled = YES;
         }
 
         /*
-         * 只监听两个真正需要的通知：
+         * 只保留：
+         * 1. 电量变化
+         * 2. 低电量模式变化
          *
-         * 1. 电量发生变化
-         * 2. 低电量模式发生变化
-         *
-         * 不再监听：
+         * 删除：
          * UIDeviceBatteryStateDidChangeNotification
          */
         [nc addObserver:self
@@ -104,16 +75,10 @@ static char kIsLowPowerKey;
                    name:NSProcessInfoPowerStateDidChangeNotification
                  object:nil];
 
-        /*
-         * 进入窗口时立即同步一次
-         */
         [self updateBatteryData];
 
     } else {
 
-        /*
-         * 离开窗口后停止监听
-         */
         [nc removeObserver:self];
     }
 }
@@ -124,17 +89,12 @@ static char kIsLowPowerKey;
         removeObserver:self];
 }
 
-#pragma mark - 电量更新
-
 - (void)updateBatteryData {
 
     if (!self.window) {
         return;
     }
 
-    /*
-     * UI 操作统一放主线程。
-     */
     dispatch_async(dispatch_get_main_queue(), ^{
 
         if (!self.window) {
@@ -145,30 +105,21 @@ static char kIsLowPowerKey;
             [UIDevice currentDevice].batteryMonitoringEnabled = YES;
         }
 
-        /*
-         * 获取电量
-         */
         float level =
             [UIDevice currentDevice].batteryLevel;
 
-        if (level < 0.0f) {
+        if (level < 0) {
             level = 1.0f;
         }
 
         int currentPercent =
-            (int)round(level * 100.0f);
+            (int)round(level * 100);
 
-        /*
-         * 获取低电量模式状态
-         */
         BOOL currentLowPower =
             [NSProcessInfo processInfo].isLowPowerModeEnabled;
 
         /*
-         * 核心省电逻辑：
-         *
-         * 电量和低电量状态都没变化，
-         * 就完全不进行 UI 刷新。
+         * 保留代码 1 原本的防重复刷新机制。
          */
         if (currentPercent == self.lastPercent &&
             currentLowPower == self.lastLowPowerState) {
@@ -176,55 +127,10 @@ static char kIsLowPowerKey;
             return;
         }
 
-        /*
-         * 保存最新状态
-         */
-        self.lastPercent = currentPercent;
-        self.lastLowPowerState = currentLowPower;
-
-        /*
-         * 更新百分比
-         */
-        self.percentLabel.text =
-            [NSString stringWithFormat:@"%d%%",
-                                       currentPercent];
-
-        /*
-         * 普通模式：
-         * 白色电池 + 白色字体
-         *
-         * 低电量模式：
-         * 黄色电池 + 黑色字体
-         */
-        if (currentLowPower) {
-
-            self.fillView.backgroundColor =
-                [UIColor colorWithRed:1.0f
-                                green:0.8f
-                                 blue:0.0f
-                                alpha:1.0f];
-
-            self.percentLabel.textColor =
-                [UIColor blackColor];
-
-        } else {
-
-            self.fillView.backgroundColor =
-                [UIColor whiteColor];
-
-            self.percentLabel.textColor =
-                [UIColor whiteColor];
-        }
-
-        /*
-         * 只有真正发生变化的时候才请求布局和绘制。
-         */
         [self setNeedsLayout];
         [self setNeedsDisplay];
     });
 }
-
-#pragma mark - 几何计算
 
 - (void)calculateGeometryWithBounds:(CGRect)bounds
                          iconScale:(CGFloat *)outScale
@@ -233,20 +139,13 @@ static char kIsLowPowerKey;
     CGFloat w = bounds.size.width;
     CGFloat h = bounds.size.height;
 
-    CGFloat scaleH =
-        h / 72.0f;
+    CGFloat scaleH = h / 72.0f;
+    CGFloat scaleW = w / 64.0f;
 
-    CGFloat scaleW =
-        w / 64.0f;
+    CGFloat scale = MIN(scaleH, scaleW);
 
-    CGFloat scale =
-        MIN(scaleH, scaleW);
-
-    CGFloat totalW =
-        32.0f * scale;
-
-    CGFloat iconH =
-        14.0f * scale;
+    CGFloat totalW = 32.0f * scale;
+    CGFloat iconH = 14.0f * scale;
 
     CGFloat iconX =
         (w - totalW) / 2.0f;
@@ -268,8 +167,6 @@ static char kIsLowPowerKey;
     }
 }
 
-#pragma mark - Layout
-
 - (void)layoutSubviews {
 
     [super layoutSubviews];
@@ -280,89 +177,67 @@ static char kIsLowPowerKey;
     CGFloat h =
         self.bounds.size.height;
 
-    if (w <= 0.0f || h <= 0.0f) {
+    if (w <= 0 || h <= 0) {
         return;
     }
 
-    /*
-     * 确保电池监控仍然开启
-     */
     if (![UIDevice currentDevice].isBatteryMonitoringEnabled) {
         [UIDevice currentDevice].batteryMonitoringEnabled = YES;
     }
 
-    /*
-     * 获取当前电量
-     */
     float level =
         [UIDevice currentDevice].batteryLevel;
 
-    if (level < 0.0f) {
+    if (level < 0) {
         level = 1.0f;
     }
 
     int currentPercent =
-        (int)round(level * 100.0f);
+        (int)round(level * 100);
 
     BOOL isLowPower =
         [NSProcessInfo processInfo].isLowPowerModeEnabled;
 
-    /*
-     * 同步缓存。
-     *
-     * 注意：
-     * 这里不调用 setNeedsLayout，
-     * 防止 layout → layout 循环。
-     */
     self.lastPercent =
         currentPercent;
 
     self.lastLowPowerState =
         isLowPower;
 
-    /*
-     * 百分比
-     */
     self.percentLabel.text =
         [NSString stringWithFormat:@"%d%%",
                                    currentPercent];
 
     /*
-     * 颜色
+     * 低电量：
+     * 黄色电池 + 黑色百分比
+     *
+     * 普通：
+     * 白色电池 + 白色百分比
      */
-    if (isLowPower) {
+    UIColor *themeColor =
+        isLowPower
+        ? [UIColor colorWithRed:1.0
+                          green:0.8
+                           blue:0.0
+                          alpha:1.0]
+        : [UIColor whiteColor];
 
-        self.fillView.backgroundColor =
-            [UIColor colorWithRed:1.0f
-                            green:0.8f
-                             blue:0.0f
-                            alpha:1.0f];
+    self.percentLabel.textColor =
+        isLowPower
+        ? [UIColor blackColor]
+        : [UIColor whiteColor];
 
-        self.percentLabel.textColor =
-            [UIColor blackColor];
+    self.fillView.backgroundColor =
+        themeColor;
 
-    } else {
-
-        self.fillView.backgroundColor =
-            [UIColor whiteColor];
-
-        self.percentLabel.textColor =
-            [UIColor whiteColor];
-    }
-
-    /*
-     * 计算电池图标尺寸
-     */
-    CGFloat iconScale = 0.0f;
+    CGFloat iconScale = 0;
     CGRect iconRect = CGRectZero;
 
     [self calculateGeometryWithBounds:self.bounds
                            iconScale:&iconScale
                             iconRect:&iconRect];
 
-    /*
-     * 电池主体宽度
-     */
     CGFloat bodyW =
         iconRect.size.width
         - (3.3f * iconScale);
@@ -370,16 +245,10 @@ static char kIsLowPowerKey;
     CGFloat padding =
         2.0f * iconScale;
 
-    /*
-     * 当前电量对应的填充宽度
-     */
     CGFloat currentFillW =
         (bodyW - padding * 2.0f)
         * level;
 
-    /*
-     * 最小可见宽度
-     */
     CGFloat minFillW =
         2.0f * iconScale;
 
@@ -387,9 +256,6 @@ static char kIsLowPowerKey;
         currentFillW = minFillW;
     }
 
-    /*
-     * 电池填充
-     */
     self.fillView.frame =
         CGRectMake(iconRect.origin.x + padding,
                    iconRect.origin.y + padding,
@@ -401,24 +267,24 @@ static char kIsLowPowerKey;
         2.0f * iconScale;
 
     /*
-     * 百分比字体
+     * 位置保持代码 1 原来的位置。
+     *
+     * 唯一修改：
+     * 字体大小从 9.3f 改成代码 2 的 9.5f。
      */
     self.percentLabel.font =
         [UIFont systemFontOfSize:
-                    9.3f * iconScale
+                    9.5f * iconScale
                           weight:UIFontWeightRegular];
 
-    /*
-     * 百分比放在电池主体内部
-     */
     self.percentLabel.frame =
-        CGRectMake(iconRect.origin.x,
-                   iconRect.origin.y,
-                   bodyW,
-                   iconRect.size.height);
+        CGRectMake(0,
+                   iconRect.origin.y
+                       + iconRect.size.height
+                       + (5.5f * iconScale),
+                   w,
+                   11.0f * iconScale);
 }
-
-#pragma mark - 手绘电池外框
 
 - (void)drawRect:(CGRect)rect {
 
@@ -430,11 +296,11 @@ static char kIsLowPowerKey;
     CGFloat h =
         self.bounds.size.height;
 
-    if (w <= 0.0f || h <= 0.0f) {
+    if (w <= 0 || h <= 0) {
         return;
     }
 
-    CGFloat iconScale = 0.0f;
+    CGFloat iconScale = 0;
     CGRect iconRect = CGRectZero;
 
     [self calculateGeometryWithBounds:self.bounds
@@ -444,20 +310,11 @@ static char kIsLowPowerKey;
     BOOL isLowPower =
         [NSProcessInfo processInfo].isLowPowerModeEnabled;
 
-    /*
-     * 外框颜色：
-     *
-     * 普通模式 = 白色
-     * 低电量模式 = 黑色
-     */
     UIColor *strokeColor =
         isLowPower
         ? [UIColor blackColor]
         : [UIColor whiteColor];
 
-    /*
-     * 电池主体
-     */
     CGFloat bodyW =
         iconRect.size.width
         - (3.3f * iconScale);
@@ -484,9 +341,6 @@ static char kIsLowPowerKey;
 
     [bodyPath stroke];
 
-    /*
-     * 电池正极
-     */
     CGFloat capW =
         1.8f * iconScale;
 
@@ -527,7 +381,7 @@ static char kIsLowPowerKey;
 
 @end
 
-#pragma mark - CCUICAPackageView Hook
+#pragma mark - CCUICAPackageView
 
 %hook CCUICAPackageView
 
@@ -535,31 +389,21 @@ static char kIsLowPowerKey;
 
     %orig;
 
-    /*
-     * 第一次遇到 PackageView 时判断
-     * 是否为低电量模块。
-     */
     NSNumber *isLowPowerTarget =
         objc_getAssociatedObject(self,
                                  &kIsLowPowerKey);
 
     if (!isLowPowerTarget) {
 
-        NSString *pkgName = @"";
-
-        if ([self respondsToSelector:@selector(packageName)]) {
-            pkgName =
-                self.packageName ?: @"";
-        }
+        NSString *pkgName =
+            [self respondsToSelector:@selector(packageName)]
+            ? self.packageName
+            : @"";
 
         BOOL matched =
             [pkgName containsString:@"LowPower"] ||
             [pkgName containsString:@"Battery"];
 
-        /*
-         * 如果 packageName 没匹配，
-         * 再通过 responder chain 判断。
-         */
         if (!matched) {
 
             for (UIResponder *r = self;
@@ -569,9 +413,6 @@ static char kIsLowPowerKey;
                 NSString *cls =
                     NSStringFromClass([r class]);
 
-                /*
-                 * 避免误匹配亮度/显示模块
-                 */
                 if ([cls containsString:@"Brightness"] ||
                     [cls containsString:@"Display"]) {
 
@@ -586,11 +427,6 @@ static char kIsLowPowerKey;
             }
         }
 
-        /*
-         * 缓存判断结果。
-         *
-         * 后续 layout 不再重复遍历。
-         */
         isLowPowerTarget =
             @(matched);
 
@@ -619,16 +455,10 @@ static char kIsLowPowerKey;
     self.backgroundColor =
         [UIColor clearColor];
 
-    /*
-     * 查找自定义电池 View。
-     */
     CBCustomBatteryView *batteryView =
         (CBCustomBatteryView *)
             [self viewWithTag:9999];
 
-    /*
-     * 不存在则创建。
-     */
     if (!batteryView) {
 
         batteryView =
@@ -641,9 +471,6 @@ static char kIsLowPowerKey;
         [self addSubview:batteryView];
     }
 
-    /*
-     * 保持大小与 PackageView 同步。
-     */
     batteryView.frame =
         self.bounds;
 
