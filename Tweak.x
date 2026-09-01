@@ -15,7 +15,7 @@ static char kCowbellIsLowPowerKey;
 
 static CGFloat const COWBELL_PERCENT_Y_OFFSET = 12.0;
 
-// 极其高效的 IOKit 电量获取（兼顾 iOS 15-18 所有 SDK 编译环境，无后台轮询）
+// 读取系统 UI 呈现电量（解决与右上角状态栏百分比不一致的问题）
 static int CowbellGetRealBatteryPercent(void) {
 #ifndef kIOMainPortDefault
     #define kIOMainPortDefault kIOMasterPortDefault
@@ -25,32 +25,45 @@ static int CowbellGetRealBatteryPercent(void) {
     io_service_t service = IOServiceGetMatchingService(mainPort, IOServiceMatching("AppleSmartBattery"));
     if (!service) return 0;
 
-    CFNumberRef currentCapObj = IORegistryEntryCreateCFProperty(service, CFSTR("AppleRawCurrentCapacity"), kCFAllocatorDefault, 0);
-    CFNumberRef maxCapObj = IORegistryEntryCreateCFProperty(service, CFSTR("AppleRawMaxCapacity"), kCFAllocatorDefault, 0);
-    IOObjectRelease(service);
+    // 优先读取系统校准后的 UIBatteryPercent
+    CFNumberRef percentObj = IORegistryEntryCreateCFProperty(service, CFSTR("UIBatteryPercent"), kCFAllocatorDefault, 0);
+    
+    // 降级处理：若无该属性则读取物理容量比值
+    if (!percentObj) {
+        CFNumberRef currentCap = IORegistryEntryCreateCFProperty(service, CFSTR("AppleRawCurrentCapacity"), kCFAllocatorDefault, 0);
+        CFNumberRef maxCap = IORegistryEntryCreateCFProperty(service, CFSTR("AppleRawMaxCapacity"), kCFAllocatorDefault, 0);
+        IOObjectRelease(service);
 
-    if (!currentCapObj || !maxCapObj) {
-        if (currentCapObj) CFRelease(currentCapObj);
-        if (maxCapObj) CFRelease(maxCapObj);
-        return 0;
+        if (!currentCap || !maxCap) {
+            if (currentCap) CFRelease(currentCap);
+            if (maxCap) CFRelease(maxCap);
+            return 0;
+        }
+
+        NSInteger cur = 0, max = 0;
+        CFNumberGetValue(currentCap, kCFNumberNSIntegerType, &cur);
+        CFNumberGetValue(maxCap, kCFNumberNSIntegerType, &max);
+        CFRelease(currentCap);
+        CFRelease(maxCap);
+
+        if (max <= 0) return 0;
+        int pct = (int)round(((double)cur / (double)max) * 100.0);
+        return (pct < 0) ? 0 : ((pct > 100) ? 100 : pct);
     }
 
-    NSInteger current = 0, max = 0;
-    CFNumberGetValue(currentCapObj, kCFNumberNSIntegerType, &current);
-    CFNumberGetValue(maxCapObj, kCFNumberNSIntegerType, &max);
-    CFRelease(currentCapObj);
-    CFRelease(maxCapObj);
+    IOObjectRelease(service);
+    NSInteger percent = 0;
+    CFNumberGetValue(percentObj, kCFNumberNSIntegerType, &percent);
+    CFRelease(percentObj);
 
-    if (max <= 0) return 0;
-    int percent = (int)round(((double)current / (double)max) * 100.0);
-    return (percent < 0) ? 0 : ((percent > 100) ? 100 : percent);
+    return (int)percent;
 }
 
 static UILabel *CowbellGetLabel(CCUICAPackageView *view) {
     return objc_getAssociatedObject(view, &kCowbellPercentLabelKey);
 }
 
-// 快速判定与缓存机制（非目标 View 瞬间拦截）
+// 快速识别与强行缓存
 static BOOL CowbellIsLowPowerPackage(CCUICAPackageView *view) {
     NSNumber *cached = objc_getAssociatedObject(view, &kCowbellIsLowPowerKey);
     if (cached) return cached.boolValue;
@@ -71,12 +84,11 @@ static BOOL CowbellIsLowPowerPackage(CCUICAPackageView *view) {
         }
     }
 
-    // 无论是或否都强行缓存，保证非低电量图标下次在 1 毫秒内退出
     objc_setAssociatedObject(view, &kCowbellIsLowPowerKey, @(matched), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     return matched;
 }
 
-// 刷新百分比与颜色（纯 CPU 计算，零 dispatch 排队）
+// 刷新处理函数（仿照 updateBatteryText 逻辑）
 static void CowbellUpdatePercent(CCUICAPackageView *view) {
     if (!view) return;
     UILabel *label = CowbellGetLabel(view);
@@ -105,24 +117,35 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
 
     objc_setAssociatedObject(view, &kCowbellPercentLabelKey, label, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
-    // 系统广播注册
+    // 移除旧的 block 监听，采用显式的 target-action 方式向 NotificationCenter 注册
+    // 保证在 View 存活期间，广播能精准调用 CowbellUpdatePercent
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
-    [nc addObserverForName:UIDeviceBatteryLevelDidChangeNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
-        CowbellUpdatePercent(view);
-    }];
-    [nc addObserverForName:NSProcessInfoPowerStateDidChangeNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
-        CowbellUpdatePercent(view);
-    }];
+    [nc removeObserver:view]; // 先移除旧监听防止重复绑定
+    
+    [nc addObserver:view
+           selector:@selector(cowbell_updateBatteryNotification:)
+               name:UIDeviceBatteryLevelDidChangeNotification
+             object:nil];
+             
+    [nc addObserver:view
+           selector:@selector(cowbell_updateBatteryNotification:)
+               name:NSProcessInfoPowerStateDidChangeNotification
+             object:nil];
 
     return label;
 }
 
 %hook CCUICAPackageView
 
+// 为 CCUICAPackageView 动态扩展响应通知的方法
+%new
+- (void)cowbell_updateBatteryNotification:(NSNotification *)note {
+    CowbellUpdatePercent(self);
+}
+
 - (void)layoutSubviews {
     %orig;
 
-    // 非低电量图标在第 1 行代码直接退出，极低消耗
     if (!CowbellIsLowPowerPackage(self)) return;
 
     UILabel *label = CowbellCreateLabel(self);
@@ -136,8 +159,11 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
     CGFloat y = centerY + COWBELL_PERCENT_Y_OFFSET;
 
     label.frame = CGRectMake(0, y, width, 11.0f);
+    label.font = [UIFont systemFontOfSize:9.5 weight:UIFontWeightRegular];
+
     [self bringSubviewToFront:label];
-    
+
+    // 每次布局更新时强行刷新（等价于 viewWillAppear 里的刷新）
     CowbellUpdatePercent(self);
 }
 
@@ -153,6 +179,9 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
             label.alpha = 1.0f;
             CowbellUpdatePercent(self);
         }
+    } else {
+        // 视图移出屏幕时清理通知监听（等价于 dealloc/viewDidDisappear 里的移除）
+        [[NSNotificationCenter defaultCenter] removeObserver:self];
     }
 }
 
