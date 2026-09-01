@@ -1,14 +1,16 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
-@interface CALayer (Private)
-@property (nonatomic, assign) BOOL allowsGroupBlending;
-@property (nonatomic, assign) BOOL allowsGroupOpacity;
 #import <objc/runtime.h>
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
 extern NSString *const kCAFilterDestOut;
+
+@interface CALayer (Private)
+@property (nonatomic, assign) BOOL allowsGroupBlending;
+@property (nonatomic, assign) BOOL allowsGroupOpacity;
+@end
 
 @interface CAFilter : NSObject
 + (instancetype)filterWithType:(NSString *)type;
@@ -97,7 +99,7 @@ static UILabel *CowbellCreateLabel(CCUICAPackageView *view) {
     label.layer.allowsGroupBlending = YES;
     label.layer.allowsGroupOpacity = YES;
 
-    // 永久挂载 DestOut 镂空滤镜，无需代码在开启/关闭时手动切换
+    // 永久挂载 DestOut 镂空滤镜
     CAFilter *filter = [CAFilter filterWithType:kCAFilterDestOut];
     label.layer.filters = @[filter];
     label.tag = 9998;
