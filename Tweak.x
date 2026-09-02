@@ -15,7 +15,9 @@ static char kIsLowPowerKey;
 @property (nonatomic, assign) CGRect lastBounds;
 @property (nonatomic, assign) float capturedLevel;
 @property (nonatomic, assign) int capturedPercent;
+@property (nonatomic, assign) BOOL hasSnapshot;
 - (void)updateColorsOnly;
+- (void)resetSnapshot;
 @end
 
 @implementation CBCustomBatteryView
@@ -27,6 +29,7 @@ static char kIsLowPowerKey;
         self.lastBounds = CGRectZero;
         self.capturedLevel = -1;
         self.capturedPercent = -1;
+        self.hasSnapshot = NO;
 
         _bodyLayer = [CAShapeLayer layer];
         _bodyLayer.fillColor = [UIColor clearColor].CGColor;
@@ -46,18 +49,20 @@ static char kIsLowPowerKey;
     return self;
 }
 
+- (void)resetSnapshot {
+    self.hasSnapshot = NO;
+    self.lastBounds = CGRectZero;
+}
+
 - (void)didMoveToWindow {
     [super didMoveToWindow];
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     if (self.window) {
         [UIDevice currentDevice].batteryMonitoringEnabled = YES;
-        self.capturedLevel = [UIDevice currentDevice].batteryLevel;
-        if(self.capturedLevel < 0) self.capturedLevel = 1.0f;
-        self.capturedPercent = (int)round(self.capturedLevel * 100);
         [nc addObserver:self selector:@selector(updateColorsOnly) name:NSProcessInfoPowerStateDidChangeNotification object:nil];
-        [self setNeedsLayout];
     } else {
         [nc removeObserver:self];
+        [self resetSnapshot];
     }
 }
 
@@ -79,6 +84,14 @@ static char kIsLowPowerKey;
     CGFloat w = self.bounds.size.width;
     CGFloat h = self.bounds.size.height;
     if (w <= 0 || h <= 0) return;
+
+    if (!self.hasSnapshot) {
+        float lv = [UIDevice currentDevice].batteryLevel;
+        if(lv < 0) lv = 1.0f;
+        self.capturedLevel = lv;
+        self.capturedPercent = (int)round(lv * 100);
+        self.hasSnapshot = YES;
+    }
 
     if (CGRectEqualToRect(self.bounds, self.lastBounds)) {
         return;
@@ -126,6 +139,16 @@ static char kIsLowPowerKey;
 
 %hook CCUICAPackageView
 
+- (void)setHidden:(BOOL)hidden {
+    %orig;
+    if (hidden) {
+        CBCustomBatteryView *batt = (CBCustomBatteryView *)[self viewWithTag:9999];
+        if (batt && [batt respondsToSelector:@selector(resetSnapshot)]) {
+            [batt resetSnapshot];
+        }
+    }
+}
+
 - (void)layoutSubviews {
     %orig;
 
@@ -160,7 +183,7 @@ static char kIsLowPowerKey;
         [self addSubview:batteryView];
 
         for (UIView *subview in self.subviews) {
-            if (subview != batteryView) {
+            if (subview != batteryView && !subview.hidden) {
                 subview.hidden = YES;
             }
         }
