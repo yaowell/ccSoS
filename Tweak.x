@@ -139,9 +139,9 @@ static char kIsLowPowerKey;
 
 %hook CCUICAPackageView
 
-- (void)setHidden:(BOOL)hidden {
+- (void)setAlpha:(CGFloat)alpha {
     %orig;
-    if (hidden) {
+    if (alpha < 0.01f) {
         CBCustomBatteryView *batt = (CBCustomBatteryView *)[self viewWithTag:9999];
         if (batt && [batt respondsToSelector:@selector(resetSnapshot)]) {
             [batt resetSnapshot];
