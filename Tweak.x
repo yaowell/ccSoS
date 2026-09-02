@@ -12,7 +12,10 @@ static char kIsLowPowerKey;
 @property (nonatomic, strong) CAShapeLayer *capLayer;
 @property (nonatomic, strong) UIView *fillView;
 @property (nonatomic, strong) UILabel *percentLabel;
-- (void)updateBatteryData;
+@property (nonatomic, assign) CGRect lastBounds;
+@property (nonatomic, assign) float capturedLevel;
+@property (nonatomic, assign) int capturedPercent;
+- (void)updateColorsOnly;
 @end
 
 @implementation CBCustomBatteryView
@@ -21,6 +24,9 @@ static char kIsLowPowerKey;
     if (self = [super initWithFrame:frame]) {
         self.userInteractionEnabled = NO;
         self.backgroundColor = [UIColor clearColor];
+        self.lastBounds = CGRectZero;
+        self.capturedLevel = -1;
+        self.capturedPercent = -1;
 
         _bodyLayer = [CAShapeLayer layer];
         _bodyLayer.fillColor = [UIColor clearColor].CGColor;
@@ -45,9 +51,11 @@ static char kIsLowPowerKey;
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     if (self.window) {
         [UIDevice currentDevice].batteryMonitoringEnabled = YES;
-        [nc addObserver:self selector:@selector(updateBatteryData) name:UIDeviceBatteryLevelDidChangeNotification object:nil];
-        [nc addObserver:self selector:@selector(updateBatteryData) name:NSProcessInfoPowerStateDidChangeNotification object:nil];
-        [self updateBatteryData];
+        self.capturedLevel = [UIDevice currentDevice].batteryLevel;
+        if(self.capturedLevel < 0) self.capturedLevel = 1.0f;
+        self.capturedPercent = (int)round(self.capturedLevel * 100);
+        [nc addObserver:self selector:@selector(updateColorsOnly) name:NSProcessInfoPowerStateDidChangeNotification object:nil];
+        [self setNeedsLayout];
     } else {
         [nc removeObserver:self];
     }
@@ -57,9 +65,10 @@ static char kIsLowPowerKey;
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
-- (void)updateBatteryData {
+- (void)updateColorsOnly {
     if (!self.window) return;
     dispatch_async(dispatch_get_main_queue(), ^{
+        self.lastBounds = CGRectZero;
         [self setNeedsLayout];
     });
 }
@@ -71,9 +80,13 @@ static char kIsLowPowerKey;
     CGFloat h = self.bounds.size.height;
     if (w <= 0 || h <= 0) return;
 
-    float level = [UIDevice currentDevice].batteryLevel;
-    if (level < 0) level = 1.0f;
-    int currentPercent = (int)round(level * 100);
+    if (CGRectEqualToRect(self.bounds, self.lastBounds)) {
+        return;
+    }
+    self.lastBounds = self.bounds;
+
+    float level = self.capturedLevel;
+    int currentPercent = self.capturedPercent;
     BOOL isLowPower = [NSProcessInfo processInfo].isLowPowerModeEnabled;
 
     UIColor *strokeColor = isLowPower ? [UIColor blackColor] : [UIColor whiteColor];
@@ -124,7 +137,6 @@ static char kIsLowPowerKey;
             matched = [pkgName containsString:@"LowPower"] || [pkgName containsString:@"Battery"];
         }
 
-        // 如果 packageName 没匹配上，向上查找父视图/控制器类名兜底
         if (!matched) {
             for (UIResponder *r = self; r; r = r.nextResponder) {
                 NSString *cls = NSStringFromClass([r class]);
@@ -146,18 +158,14 @@ static char kIsLowPowerKey;
         batteryView = [[CBCustomBatteryView alloc] initWithFrame:self.bounds];
         batteryView.tag = 9999;
         [self addSubview:batteryView];
-    }
 
-    // 重新确保原生子视图被隐藏，而自定义 View 保持显示
-    for (UIView *subview in self.subviews) {
-        if (subview.tag != 9999) {
-            subview.hidden = YES;
-        } else {
-            subview.hidden = NO;
+        for (UIView *subview in self.subviews) {
+            if (subview != batteryView) {
+                subview.hidden = YES;
+            }
         }
     }
 
-    [self bringSubviewToFront:batteryView];
     batteryView.frame = self.bounds;
 }
 
