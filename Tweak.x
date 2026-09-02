@@ -13,11 +13,7 @@ static char kIsLowPowerKey;
 @property (nonatomic, strong) UIView *fillView;
 @property (nonatomic, strong) UILabel *percentLabel;
 @property (nonatomic, assign) CGRect lastBounds;
-@property (nonatomic, assign) float capturedLevel;
-@property (nonatomic, assign) int capturedPercent;
-@property (nonatomic, assign) BOOL hasSnapshot;
-- (void)updateColorsOnly;
-- (void)resetSnapshot;
+- (void)updateBatteryData;
 @end
 
 @implementation CBCustomBatteryView
@@ -27,9 +23,6 @@ static char kIsLowPowerKey;
         self.userInteractionEnabled = NO;
         self.backgroundColor = [UIColor clearColor];
         self.lastBounds = CGRectZero;
-        self.capturedLevel = -1;
-        self.capturedPercent = -1;
-        self.hasSnapshot = NO;
 
         _bodyLayer = [CAShapeLayer layer];
         _bodyLayer.fillColor = [UIColor clearColor].CGColor;
@@ -49,18 +42,14 @@ static char kIsLowPowerKey;
     return self;
 }
 
-- (void)resetSnapshot {
-    self.hasSnapshot = NO;
-    self.lastBounds = CGRectZero;
-}
-
 - (void)didMoveToWindow {
     [super didMoveToWindow];
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     if (self.window) {
-        [self resetSnapshot];
         [UIDevice currentDevice].batteryMonitoringEnabled = YES;
-        [nc addObserver:self selector:@selector(updateColorsOnly) name:NSProcessInfoPowerStateDidChangeNotification object:nil];
+        [nc addObserver:self selector:@selector(updateBatteryData) name:UIDeviceBatteryLevelDidChangeNotification object:nil];
+        [nc addObserver:self selector:@selector(updateBatteryData) name:NSProcessInfoPowerStateDidChangeNotification object:nil];
+        [self updateBatteryData];
     } else {
         [nc removeObserver:self];
     }
@@ -70,7 +59,7 @@ static char kIsLowPowerKey;
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
-- (void)updateColorsOnly {
+- (void)updateBatteryData {
     if (!self.window) return;
     dispatch_async(dispatch_get_main_queue(), ^{
         self.lastBounds = CGRectZero;
@@ -85,21 +74,14 @@ static char kIsLowPowerKey;
     CGFloat h = self.bounds.size.height;
     if (w <= 0 || h <= 0) return;
 
-    if (!self.hasSnapshot) {
-        float lv = [UIDevice currentDevice].batteryLevel;
-        if(lv < 0) lv = 1.0f;
-        self.capturedLevel = lv;
-        self.capturedPercent = (int)round(lv * 100);
-        self.hasSnapshot = YES;
-    }
-
     if (CGRectEqualToRect(self.bounds, self.lastBounds)) {
         return;
     }
     self.lastBounds = self.bounds;
 
-    float level = self.capturedLevel;
-    int currentPercent = self.capturedPercent;
+    float level = [UIDevice currentDevice].batteryLevel;
+    if (level < 0) level = 1.0f;
+    int currentPercent = (int)round(level * 100);
     BOOL isLowPower = [NSProcessInfo processInfo].isLowPowerModeEnabled;
 
     UIColor *strokeColor = isLowPower ? [UIColor blackColor] : [UIColor whiteColor];
