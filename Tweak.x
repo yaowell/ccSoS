@@ -3,6 +3,12 @@
 
 static char kIsLowPowerKey;
 
+// 1. 完整声明类结构，继承自 UIView，防止 Clang 报 forward declaration 错误
+@interface CCUICAPackageView : UIView
+@property (nonatomic, copy) NSString *packageName;
+@end
+
+// 2. 自定义电池 View 声明
 @interface CBCustomBatteryView : UIView
 @property (nonatomic, strong) CAShapeLayer *bodyLayer;
 @property (nonatomic, strong) CAShapeLayer *capLayer;
@@ -18,17 +24,21 @@ static char kIsLowPowerKey;
         self.userInteractionEnabled = NO;
         self.backgroundColor = [UIColor clearColor];
 
+        // 外框图层 (GPU 绘制，极省电)
         _bodyLayer = [CAShapeLayer layer];
         _bodyLayer.fillColor = [UIColor clearColor].CGColor;
         [self.layer addSublayer:_bodyLayer];
 
+        // 电池头图层
         _capLayer = [CAShapeLayer layer];
         [self.layer addSublayer:_capLayer];
 
+        // 内部填充 View
         _fillView = [[UIView alloc] init];
         _fillView.clipsToBounds = YES;
         [self addSubview:_fillView];
 
+        // 电量百分比标签
         _percentLabel = [[UILabel alloc] init];
         _percentLabel.textAlignment = NSTextAlignmentCenter;
         [self addSubview:_percentLabel];
@@ -40,13 +50,19 @@ static char kIsLowPowerKey;
     [super didMoveToWindow];
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     if (self.window) {
+        // 挂载到窗口时开启系统电量监听并注册通知
         [UIDevice currentDevice].batteryMonitoringEnabled = YES;
         [nc addObserver:self selector:@selector(updateBatteryData) name:UIDeviceBatteryLevelDidChangeNotification object:nil];
         [nc addObserver:self selector:@selector(updateBatteryData) name:NSProcessInfoPowerStateDidChangeNotification object:nil];
         [self updateBatteryData];
     } else {
+        // 移出窗口时解绑通知
         [nc removeObserver:self];
     }
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
 - (void)updateBatteryData {
@@ -58,6 +74,7 @@ static char kIsLowPowerKey;
 
 - (void)layoutSubviews {
     [super layoutSubviews];
+
     CGFloat w = self.bounds.size.width;
     CGFloat h = self.bounds.size.height;
     if (w <= 0 || h <= 0) return;
@@ -70,13 +87,13 @@ static char kIsLowPowerKey;
     UIColor *strokeColor = isLowPower ? [UIColor blackColor] : [UIColor whiteColor];
     UIColor *themeColor = isLowPower ? [UIColor colorWithRed:1.0 green:0.8 blue:0.0 alpha:1.0] : [UIColor whiteColor];
 
-    // 计算 Scale
+    // 计算 Scale 比例
     CGFloat scale = MIN(h / 72.0f, w / 64.0f);
     CGFloat totalW = 32.0f * scale;
     CGFloat iconH = 14.0f * scale;
     CGRect iconRect = CGRectMake((w - totalW) / 2.0f, (h - iconH) / 2.0f - scale, totalW, iconH);
 
-    // 绘制外框与电池头 (CAShapeLayer 性能更优)
+    // 1. 绘制外框与极头 Path
     CGFloat bodyW = iconRect.size.width - (3.3f * scale);
     _bodyLayer.path = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(iconRect.origin.x, iconRect.origin.y, bodyW, iconRect.size.height) cornerRadius:4.2f * scale].CGPath;
     _bodyLayer.strokeColor = strokeColor.CGColor;
@@ -90,14 +107,14 @@ static char kIsLowPowerKey;
                                                  cornerRadii:CGSizeMake(1.2f * scale, 1.2f * scale)].CGPath;
     _capLayer.fillColor = strokeColor.CGColor;
 
-    // 填充区域
+    // 2. 更新电量填充区域
     CGFloat padding = 2.1f * scale;
     CGFloat currentFillW = MAX((bodyW - padding * 2.0f) * level, 2.0f * scale);
     _fillView.frame = CGRectMake(iconRect.origin.x + padding, iconRect.origin.y + padding, currentFillW, iconRect.size.height - padding * 2.0f);
     _fillView.backgroundColor = themeColor;
     _fillView.layer.cornerRadius = 2.0f * scale;
 
-    // 百分比标签
+    // 3. 更新百分比文本
     _percentLabel.text = [NSString stringWithFormat:@"%d%%", currentPercent];
     _percentLabel.textColor = isLowPower ? [UIColor blackColor] : [UIColor whiteColor];
     _percentLabel.font = [UIFont systemFontOfSize:9.5f * scale weight:UIFontWeightRegular];
@@ -106,11 +123,13 @@ static char kIsLowPowerKey;
 
 @end
 
+// 3. Hook 逻辑入口
 %hook CCUICAPackageView
 
 - (void)layoutSubviews {
     %orig;
 
+    // 判定是否为低电量图标（绑定 Associated Object 避免重复判断）
     NSNumber *isLowPowerTarget = objc_getAssociatedObject(self, &kIsLowPowerKey);
     if (!isLowPowerTarget) {
         NSString *pkgName = [self respondsToSelector:@selector(packageName)] ? [self performSelector:@selector(packageName)] : @"";
@@ -121,15 +140,18 @@ static char kIsLowPowerKey;
 
     if (!isLowPowerTarget.boolValue) return;
 
+    // 注入自定义 View
     CBCustomBatteryView *batteryView = (CBCustomBatteryView *)[self viewWithTag:9999];
     if (!batteryView) {
         batteryView = [[CBCustomBatteryView alloc] initWithFrame:self.bounds];
         batteryView.tag = 9999;
         [self addSubview:batteryView];
-        
-        // 隐藏原本的矢量动画，只隐藏一次
+
+        // 隐藏低电量按钮原本的系统矢量图层（只在初始化时隐藏一次）
         for (UIView *subview in self.subviews) {
-            if (subview != batteryView) subview.hidden = YES;
+            if (subview != batteryView) {
+                subview.hidden = YES;
+            }
         }
     }
 
