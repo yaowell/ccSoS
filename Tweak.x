@@ -58,11 +58,11 @@ static char kIsLowPowerKey;
     [super didMoveToWindow];
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     if (self.window) {
+        [self resetSnapshot];
         [UIDevice currentDevice].batteryMonitoringEnabled = YES;
         [nc addObserver:self selector:@selector(updateColorsOnly) name:NSProcessInfoPowerStateDidChangeNotification object:nil];
     } else {
         [nc removeObserver:self];
-        [self resetSnapshot];
     }
 }
 
@@ -138,16 +138,6 @@ static char kIsLowPowerKey;
 @end
 
 %hook CCUICAPackageView
-
-- (void)setAlpha:(CGFloat)alpha {
-    %orig;
-    if (alpha < 0.01f) {
-        CBCustomBatteryView *batt = (CBCustomBatteryView *)[self viewWithTag:9999];
-        if (batt && [batt respondsToSelector:@selector(resetSnapshot)]) {
-            [batt resetSnapshot];
-        }
-    }
-}
 
 - (void)layoutSubviews {
     %orig;
